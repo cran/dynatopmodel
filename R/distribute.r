@@ -30,7 +30,7 @@ dist.flux <- function(groups, qbf,
 }
 
 
-dist.ex.dummy <- function(groups, flows, stores, w, dt, ichan=1, nstep=10, debug=F)
+dist.ex.dummy <- function(groups, flows, stores, w, dt, ichan=1, nstep=10, debug=FALSE)
 {
 	ex <- stores$ex
 	# transfer everything into the river
@@ -49,7 +49,7 @@ dist.ex.dummy <- function(groups, flows, stores, w, dt, ichan=1, nstep=10, debug
 }
 	
 
-dist.ex.2 <- function(groups, flows, stores, w, dt, ichan=1, nstep=10, debug=F)
+dist.ex.2 <- function(groups, flows, stores, w, dt, ichan=1, nstep=10, debug=FALSE)
 {
 	ex <- stores$ex
 	if(any(ex>0) )

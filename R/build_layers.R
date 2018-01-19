@@ -5,7 +5,7 @@
 #' @export build_layers
 #' @import raster
 #' @param dem Elevation raster using a projected coordinate system (e.g UTM) and regular grid spacing. Should have a resolution of a least 30m for the TWI to be meaningful.
-#' @param fill.sinks If TRUE (default) then run a sinkfill before calaculating the upslope area and TWI.
+#' @param fill.sinks If TRUE (default) then run a sinkfill before calculating the upslope area and TWI.
 #' @param deg Threshold intercell slope to determine sinks (degrees).
 #' @author Peter Metcalfe
 #' @return A multi-band raster (stack) comprising, in order, the elevations, upslope area and topographic wetness index values.
@@ -24,7 +24,7 @@ build_layers <- function(dem,
                          fill.sinks=TRUE,
                          deg=0.1)  # sinkfill min threshold)    # default width of channel)
 {
-  layers <- stack(dem)
+  layers <- dem
 
   # get the upslope area and a/tanb index. Sinks are first filled using the appropriate threshold angle
   message("Building upslope areas...")

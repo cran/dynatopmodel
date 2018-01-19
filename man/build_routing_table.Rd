@@ -40,10 +40,9 @@ barplot(tab[,2]*100, xlab="Mean flow distance to outlet (m)",
 ylab="Network Width \%", names.arg=tab[,1])
 }
 }
-\author{
-Peter Metcalfe
-}
 \references{
 Beven, K. J. (2012). Rainfall-runoff modelling : the primer. Chichester, UK, Wiley-Blackwell.
 }
-
+\author{
+Peter Metcalfe
+}

@@ -36,7 +36,7 @@ S4.as.list <- function(x)
 }
 
 # as for lapply but apply names and remove any NULLs before return
-lapply_ex <- function(x, fun, names=NULL, merge=F,...)
+lapply_ex <- function(x, fun, names=NULL, merge=FALSE,...)
 {
   nms <- names(x)
   res <- lapply(x, fun, ...)

@@ -1,10 +1,7 @@
 ##########################################################################################
 # Routines for reading time series data (e.g. obs, p.e and discharges) from disk
 ##########################################################################################
-require(xts)
-require(tools)
-
-check.obs <- function(input, msg=F)
+check.obs <- function(input, msg=FALSE)
 {
 
 #   # return number of missing values
@@ -38,6 +35,206 @@ fix.obs<- function(obs, maxgaps=24, missing.data=NA)
   return(obs)
 }
 
+# loading tabulated data from the specified file
+load_data_table <- function(fn, sep="\t", header=FALSE,
+         skip=1, nfield=NULL,
+         fields=NULL, fixed=TRUE,
+         fact=1)
+{
+  # read all lines
+  dat <- readLines(fn)
+  istart <- skip
+
+  # check for repeated separators that indicate empty data
+  # dat <- gsub(paste0(sep, sep), paste0(sep, " ", sep), dat)
+  if(is.null(nfield))
+  {
+    if(header)
+    {
+      # this assume that the first line contain the field information
+      fields <- strsplit(dat[skip], sep)[[1]]
+      nfield <- length(fields)
+      istart <- skip+1
+      nms <- fields
+    }
+  }
+  else
+  {
+    nfield <- length(dat[skip])
+
+    # first line with data sets the expected size per
+    istart <- skip+1
+    nms <- paste0("X", 1:nfield)
+    # could keep reading lines until finding a line with the requisite number of fields
+    #    nfield <- length(fields)
+  }
+
+  if(length(dat)<istart)
+  {
+    # data.frame(matrix(ncol=length(fields), nrow=0, byrow=TRUE))
+    return(NULL)
+  }
+
+  pb <- txtProgressBar(min=istart-1, max = length(dat), style = 3)
+
+  dat.good <- lapply(istart:length(dat),
+
+                     function(i)
+                     {
+                       setTxtProgressBar(pb, value = i)
+
+                       fields <- strsplit(dat[i], sep)[[1]]
+
+                       if(length(fields)==nfield)
+                       {
+                         return(matrix(fields, nrow=1))
+                       }
+                       # if a different no. items ignore
+                       return(NULL)
+                     }
+  )
+
+  # calculating the number of rows that failed
+  nbad <- (length(dat)-istart)-length(dat.good)
+
+  if(nbad>0)
+  {
+    message("Couldn't read ", nbad, " records; removed")
+  }
+  message("Loaded ", length(dat.good), " record(s), merging....")
+  dat.good <- data.frame(do.call(rbind, dat.good))
+
+  # always now set
+  names(dat.good)<- nms
+
+  # identify numeric columns
+  for(i in 1:ncol(dat.good))
+  {
+    if(all(is.number(dat.good[,i])))
+    {
+      dat.good[,i] <- as.numeric(dat.good[,i])
+    }
+  }
+
+  return(dat.good)
+}
+
+# load the calibration results file and ensure all lines have the same length (set by the first line)
+# remove any that fail. skip gives the numeber of initila lines to ignore
+load_results_table <- function(fn, sep="\t", header=FALSE,
+                            itm=1, ival=2, icol=1:2,  # time column; value column(s); cols to return (including the time)
+                            as.xts=TRUE,
+                            skip=1, nfield=NULL,
+                            fields=NULL,
+                            fixed=FALSE,
+                            fact=1,
+                            start=NULL, end=NULL,
+                            fmt="%Y-%m-%d %H:%M:%S",...)
+{
+  # read the first line
+  dat <- readLines(fn)
+  istart <- skip
+
+  # check for repeated separators that indicate empty data
+  # dat <- gsub(paste0(sep, sep), paste0(sep, " ", sep), dat)
+
+  if(is.null(nfield))
+  {
+    if(header)
+    {
+      # this assume that the first line contain the field information
+      fields <- strsplit(dat[skip], sep)[[1]]
+      nfield <- length(fields)
+      istart <- skip+1
+    }
+
+  }
+  else
+  {
+    # first line with data
+    istart <- skip+1
+    # could keep reading lines until finding a line with the requisite number of fields
+    #    nfield <- length(fields)
+  }
+
+  # always returning the column containing tm
+  # cols <- unique(c(col, itm))
+
+  pb <- txtProgressBar(min=istart, max = length(dat), style = 3)
+
+  iend <- length(dat)
+  if(!is.null(end))
+  {
+    end <- as.POSIXct(end)
+    # search for first time that matches
+    tm.str <- format(end, format=fmt)
+    iend.test <- grep(tm.str, dat)
+    if(length(iend.test)>0)
+    {
+      iend <- iend.test
+    }
+  }
+
+  if(!is.null(start))
+  {
+    start <- as.POSIXct(start)
+    # search for first time that matches
+    tm.str <- format(start, format=fmt)
+    istart.test <- grep(tm.str, dat)
+    if(length(istart.test)>0)
+    {
+      istart <- istart.test
+    }
+  }
+
+
+  dat.good <- lapply(istart:iend,
+
+                     function(i)
+                     {
+                       setTxtProgressBar(pb, value = i)
+
+                       fields <- strsplit(dat[i], sep)[[1]]
+
+                       add <- length(fields)==nfield | fixed
+
+                        if(add)
+                        {
+                         # return subset
+                         return(fields[icol])
+                       }
+
+                     }
+  )
+
+  nbad <- (length(dat)-istart)-length(dat.good)
+
+  if(nbad>0)
+  {
+    message("Couldn't read ", nbad, " records; removed")
+  }
+  message("Loaded ", length(dat.good), " records, merging....")
+  dat.good <- data.frame(do.call(rbind, dat.good))
+
+  if(header & is.null(fields))
+  {
+    nms <- fields
+    names(dat.good)<- nms
+  }
+
+  if(as.xts)
+  {
+    # first col by default holds the time uindex
+    tms <- strptime(dat.good[,itm], format=fmt)
+    # assuming firther cols are numeric
+    message("Observations in period ", dat.good[1,itm], " to ", dat.good[iend,itm])
+    vals <- as.numeric(as.character(dat.good[,ival]))*fact
+    res <- xts(vals, order.by=tms)
+    return(res)
+  }
+
+  return(dat.good)
+}
 
 # create time series from given input , start time and interval
 # if already a time series, truncate series by teh start and check at same resolution
@@ -80,7 +277,7 @@ get.obs <- function(obs, sim.start, sim.end=NULL, dt=1)  # dt is in hours
 
 # read time string and parse to date time.
 # ParseDateTime <- function(time_str, tz="GMT", fmt="%Y-%m-%d %H:%M:%S",
-# 						  revorder=T)
+# 						  revorder=TRUE)
 # {
 # 	time <-strptime(time_str, fmt, tz=tz)
 #
@@ -107,7 +304,7 @@ write.obs <- function(fn, dat,
   sel <- which(tms<=end & tms>=start)
   subdat <- dat[sel, which.col]
  # tms <- index(dat)[sel]
-  write.table(data.frame(subdat), fn, quote=F, sep=sep,...)
+  write.table(data.frame(subdat), fn, quote=FALSE, sep=sep,...)
 
 }
 
@@ -116,8 +313,8 @@ is.number <- function(s)
 {
   w <- as.numeric(options("warn"))
   options("warn"=-1)
-  val <- F
-  try(val <- !is.na(as.numeric(s)), silent=T)
+  val <- FALSE
+  try(val <- !is.na(as.numeric(s)), silent=TRUE)
   options("warn"=w)
   return(val)
 
@@ -141,7 +338,7 @@ header.lines <- function(fn, sep, max.n=2, skip=0)
     }
   )
   seqs <- rle(lines.vals)
-  # lengthg of the first sequence of F in file, indicating a header line comprised of
+  # lengthg of the first sequence of FALSE in file, indicating a header line comprised of
   if(!seqs$values[1]){
     return(seqs$lengths[1])
   }
@@ -154,131 +351,83 @@ read.obs <- function(fn,
                           #  start=NULL, # return subset of
                           #  end=NULL,
                             maxgaps=24, # largest gap in data that can be interpolated
-                            tm=1,   # col name, col number or vector (start, end, number is inferred from number of observations. If missing, generate a time series from start and end)
-                            val=2,  # col number(s) or name(s) containing observations. if > number of colums then truncate
+                            itm=1,   # col name, col number or vector (start, end, number is inferred from number of observations. If missing, generate a time series from start and end)
+                            ival=2,  # col number(s) or name(s) containing observations. if > number of colums then truncate
                             fmt="%Y-%m-%d %H:%M:%S",   # date time format string
                             tz="GMT",           #  tz defaults to UTC, blank uses current tz - watch out for daylighgt saving time changes
-                            header=is.character(tm) | is.character(val),           # whether column names are present, can also point to a line in the input
+                            header=FALSE, #is.character(tm) | is.character(val),           # whether column names are present, can also point to a line in the input
                             metalines=0,        # any metadata lines - can also point to a file location. synonym with skip
                             skip=NA,
                             units="m",          # expected units
                             dt=1,               # default time step in hours
                             sep="\t",
 										        missing.data = NA,  # missing data values: set to e.g. 0 to treat as no reading
-                            include.status=F,...)   # include an integer status code for each observation in another colums
+                            include.status=FALSE,...)   # include an integer status code for each observation in another colums
 {
-  skip <- max(metalines, skip, na.rm=T)
-#  try(header <- header.lines(fn, sep, skip=metalines)>0)
-  # determine and override type of separator
-  sep.rep <- switch(tools::file_ext(fn),
-         "csv"=",",
-         "tsv"="\t",
-         "dat"="\t")
-  if(!is.null(sep.rep)){sep<-sep.rep}
+  skip <- max(metalines, skip, na.rm=TRUE)
 
   colnames <- NULL
-  if(is.numeric(header))
-  {
-      # numeric value  indicate ro on which to find the colum header names
-      colnames <- readLines(fn, n=header)[header]
-    header <- F
-    colnames <- strsplit(colnames, sep) [[1]]
-  }
 
-  # is the first line a numeric
-#  first <- split(first.line, split=sep)
-#  try(if(is.character(first.line[[2]])){header=T})
-
+  # set the parsed times. If the column holding the time strings cannot be parsed into valid times using
+  # fm this will be NULL.
+  times <- NULL
 	obs <- read.table(fn,
-                     fill=F,
-	                 header=header, # if using named columns then this must be TRUE
-	                 sep=sep,   # or delimited if sep=","
-	                 skip=skip,...)    # how mant lines to skip at head
+                    fill=TRUE,              # if lines have unequal length fill misiing with blanks
+	                  blank.lines.skip=TRUE,  #
+	                  header=header,          # if using named columns then this must be TRUE
+	                  sep=sep,                # How delimited
+	                  skip=skip)         # No. lines to skip at head
 
-  if(length(tm)>0)
+  nbad <- 0
+	# time column specified. Otherwise
+  if(length(itm)>0)
   {
+	  time_str<-  obs[,itm]
 
-    # time column specified
-    # e.g. vector of start, end times
-#     times <- seq(start, end, length.out = nrow(obs))
-	  # check for any column headers, if not found then assumme that first col is time and second the reading
-	  time_str<-  obs[,tm]  #paste(obs$year,"-",obs$month,"-",obs$day," ",obs$hr,":00:00",sep="")
-    if(length(tm)>1)
-    {
-      # collapse into a single column assuming e.g first is date and second the time
-      time_str<-do.call(paste, time_str)
-    }
-#     start <- obs[1, tm[]
-#     end <- obs[nrow(obs), tm]
-	  # parse to local times (POSIXlt), then calendar times ()
-	  times <- strptime(time_str, fmt, tz=tz)   #, tz="GMT")
+	  # attempt to parse to local times (POSIXlt). If it fails just the observations will be returned with a warning
+	  try(tms <- strptime(time_str, fmt, tz=tz))
+
+	  # removing times that can't be parsed
+	  igood <- which(!is.na(tms))
+	  obs <- obs[igood,ival]
+	  tms <- tms[igood]
+	  nbad <- length(tms)-igood
+	  if(length(tms)==0)
+	  {
+	    warning("Couldn't locate any valid times - check specified format ", fmt)
+	    # not a time series - return just a table
+	    return(obs)
+	  }
   }
-  else
+	else
+  { # not a time series - return just a table
+    return(obs[,ival])
+  }
+
+  if(length(obs)==0)
   {
-    # assume given time step (1 hr by default) and create a dummy time series
-    start <- as.POSIXct("2000-01-01")
-    end <- as.POSIXct(start+dt*3600*(nrow(obs)-1))
-    times <- seq(start, end, by=dt*3600)
-    message(paste("Time index created for series from ", start, " to ", end, " by ", dt, "hours"))
+    warning("No observations loaded - check separator '", sep, "'?")
   }
-  # cam specify all colukms byu supplying a large range of column indexes containing observations
-  # will be truncated to the column count
-  if(is.numeric(val)& max(val)>ncol(obs))
- 	{
-  	val<-min(val, ncol(obs)):ncol(obs)
-  }
-    if(!is.null(colnames))
-    {
-        nms <- colnames[val]
-    }
-    else
-    {
-        nms <- colnames(obs)[val]
-    }
-  # ensure numeric, char arguments will become NAs
-  obs <- apply(as.matrix(obs[,val]), MARGIN=2, function(x){as.numeric(x)})
-  # strip out invalid cols
-  OK.cols <- apply(obs, MARGIN=2, function(x){!all(is.na(x))})
-  obs <- obs[, OK.cols]
-	# second column is the hourly measured obsfall. Create time series
-	obs <- xts(obs, order.by=as.POSIXct(times))
-	# determine ends of period
-#	if(is.null(start)){start<-times[1]}
-#	if(is.null(end)){end<-times[length(times)]}
+  browser()
 
-#	sel<-paste(start, "::", end, sep="")
-  # remove data whose time entries couldn't be parsed
-	badtimes <- which(is.na(times))
-	if(length(badtimes)>0)
-  {
-	  obs <- obs[-badtimes,]
-  }
-	if(length(obs)==0)
-	{
-    stop("No valid times located in data source - check time string format ", fmt, "\n")
-	}
- # obs <- apply(obs, MARGIN=2, FUN=fix.obs, maxgaps=maxgaps, missing.data=missing.data)
-  n <- nrow(obs)
-  cat(paste("Read ", length(obs), " records for period ",
-      index(obs[1]), " to ",  index(obs[n]), " no. missing=", check.obs(obs), "\n"))
+  # as a time series
+  obs <- xts(as.numeric(obs), order.by=tms)
 
-  if(units=="mm" & max(obs>1)){
-    message("Data may be in mm")
-  }
-  colnames(obs)<-nms[OK.cols]
+  msg <- paste0("Read ", nrow(obs), " records for period ", min(index(obs)), " to ",  max(index(obs)))
 
-  # just the observations
+  if(nbad>0){ msg <- paste0(msg, " no. missing=")}
+  message(msg)
+
   return(obs)
 }
-
 
 # read in observed discahrge data in IH format then aggregate to the time step used in simulation
 # defaults to 1hour. Assmumes standard CEH format with 14 lines of metadata
 ReadDischargeData <- function(fn, dt=1, start=NULL, end=NULL,
-							  aggregate =F,
+							  aggregate =FALSE,
 							  headerlines=14)
 {
-	flow <- read.csv(fn, header=F, skip= headerlines)
+	flow <- read.csv(fn, header=FALSE, skip= headerlines)
 	# remove index column if it exists
 	#   if(ncol(flow)>2)
 	#   {
@@ -313,4 +462,112 @@ ReadDischargeData <- function(fn, dt=1, start=NULL, end=NULL,
 		cat("aggregating to every", dt, " hour(s)...\n")
 		Qobs <- aggregate(Qobs, time(Qobs) - as.numeric(time(Qobs)) %% l, mean)}
 	return(xts(Qobs))
+}
+
+
+# load the calibration results file and ensure all lines have the same length (set by the first line)
+# remove any that fail. skip gives the numeber of initila lines to ignore
+# version that can deal with missing lines
+# fixed TRUE if should attempt to truncate / expand any data to the given number of fields
+load_results_table <- function(fn, sep="\t", header=FALSE,
+                               itm=1, ival=2, icol=1:2,  # time column; value column(s); cols to return (including the time)
+                               as.xts=TRUE,
+                               skip=1, nfield=NULL,
+                               fields=NULL,
+                               fact=1,
+                               fixed=FALSE,
+                               fmt="%Y-%m-%d %H:%M:%S",...)
+{
+  # read the first line
+  dat <- readLines(fn)
+  istart <- skip
+
+  # check for repeated separators that indicate empty data
+ # dat <- gsub(paste0(sep, sep), paste0(sep, " ", sep), dat)
+
+  if(is.null(nfield))
+  {
+    if(header)
+    {
+      # this assume that the first line contain the field information
+      fields <- strsplit(dat[skip], sep)[[1]]
+      nfield <- length(fields)
+      istart <- skip+1
+
+    }
+
+  }
+  else
+  {
+    # first line with data
+    istart <- skip+1
+    # could keep reading lines until finding a line with the requisite number of fields
+#    nfield <- length(fields)
+  }
+
+  if(length(dat)<=istart)
+  {
+   # data.frame(matrix(ncol=length(fields), nrow=0, byrow=TRUE))
+    return(NULL)
+  }
+
+  # always returning the column containing tm
+ # cols <- unique(c(col, itm))
+
+  pb <- txtProgressBar(min=istart, max = length(dat), style = 3)
+
+  dat.good <- lapply(istart:length(dat),
+
+         function(i)
+         {
+           setTxtProgressBar(pb, value = i)
+
+           fields <- strsplit(dat[i], sep)[[1]]
+
+
+           if(length(fields)==nfield | fixed)
+           {
+             fields <- sapply(fields[icol],
+                    function(f)
+                    {
+
+                      if(is.number(f))
+                      {
+                        return((as.numeric(f)))
+                      }
+                      return(f)
+                    }
+             )
+             return(fields)
+           }
+
+         }
+  )
+
+  nbad <- (length(dat)-istart)-length(dat.good)
+
+  if(nbad>0)
+  {
+    message("Couldn't read ", nbad, " records; removed")
+  }
+  message("Loaded ", length(dat.good), " records, merging....")
+  dat.good <- data.frame(do.call(rbind, dat.good))
+
+  if(header & is.null(fields))
+  {
+    nms <- fields
+    names(dat.good)<- nms
+  }
+
+  if(as.xts)
+  {
+    # first col by default holds the time uindex
+    tms <- strptime(dat.good[,itm], format=fmt)
+    # assuming firther cols are numeric (ensure vals are converted from levels)
+    vals <- as.numeric(as.character(dat.good[,ival]))*fact
+    res <- xts(vals, order.by=tms)
+    return(res)
+  }
+
+  return(dat.good)
 }

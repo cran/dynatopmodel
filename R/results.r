@@ -1,4 +1,5 @@
-require(lubridate)
+# Outputting of Dynamic TOPMODEL results
+#############################################################
 update.output <- function(output, groups, stores, it, ichan,
                           items=NULL)
 {
@@ -9,7 +10,7 @@ update.output <- function(output, groups, stores, it, ichan,
 
   # water balance: rain in, evap and specific discharge out
 #  output[it, "wb"]  <- output[it, "wb"] + as.numeric(current.input(groups, rain[it,], output[it, "ae"], Qr[it,]/catchArea))
-#  output[time, "ae"] <- weighted.average(ae, groups$area)
+#  output[time, "ae"] <- weighted.mean(ae, groups$area)
 #  storage.deficits[time,]<- stores[-ichan, "sd"]
 #  base.flows[time,]<- flows[-ichan, "qbf"]
   for(nm in names(items))
@@ -60,211 +61,11 @@ RunSummary <- function(groups, stores, storage.in, ichan, qsim, qobs, start.time
 
 
 
-# # initialise the directory for run info - call before run to initialise
-#
-#
-#
-# SaveGraphicsOutput <- function(save.dir, tm,
-#                                title, runid, qr,
-#                                evap, rain,
-#                                groups, qobs,
-#                                wb,
-#                                eff,
-#                                ymax,
-#                                disp.par,
-#                                run.par,
-#                                buff,ichan)
-# {
-#   # save a snapshot of observed / simulated discharges
-# #   fn <- paste0(format(tm, disp.par$graphics.fn.fmt), ".jpg")
-# #
-# #   jpeg(1024, 768, file=file.path(save.dir, fn))
-#  #  browser()
-# #   disp.output(title, runid, qr,
-# #                     evap, rain, tm,
-# #                     groups, qobs,
-# #                     wb,
-# #                     eff,
-# #                     ymax,
-# #                     disp.par=disp.par,
-# #                     run.par=run.par,
-# #                     buff,
-# #                   ichan=ichan)
-#
-#   # fmt by default include extension
-#   fn <- format(tm, disp.par$graphics.fn.fmt)
-#   width <- disp.par$graphics.save.width
-#   height <- disp.par$graphics.save.height
-#   devn <- dev.copy(device=jpeg, width=width, height=height,
-#                       filename=file.path(save.dir, fn))
-#   dev.off()
-#
-#   #
-#   #       disp.output(title, runid, qsim, pe, rain, tm,
-#   #                        groups, qobs, bal, eff=eff,
-#   #                        timeBuffer)
-#   #       dev.off()
-# }
 
 
-
-
-# identify the first window of default type on list with hydrograph output
-# call once to estalish titled output windows
-setup.output <- function(disp.par,
-                        run.par,
-                        rain,
-                        qobs=NULL,
-												sim.start=NULL, dt=1, pe=NULL)
-
-{
-	if(disp.par$"graphics.show"==T)
-	{
-    disp.par <- merge.lists(disp.par(), disp.par)
-    # simStart <-  start + run.par$"sim.delay"*3600  # add simulation delay (expressed in hours)
-    disp.par$disp.start <- sim.start + disp.par$"graphics.delay"*3600 # hours -> seconds
-
-    if(!(disp.par$text.out == "N"))
-    {
-        disp.par$text.out <- stdout()
-    }
-    else
-    {
-        disp.par$text.out <- NULL
-    }
-    if(nchar(disp.par$text.out)>0)
-    {
-        #  file specified
-        #   text.out <- file(disp.par$text.out)
-    }
-
-    if(disp.par$"graphics.save"==T & !file.exists(disp.par$"graphics.out"))
-    {
-      # mmmm
-        dir.create(disp.par$"graphics.out", recursive=T)
-    }
-    # graphics interval is in hours but needs to be converted if time step is not
-    disp.par$graphics.interval <- max(round(disp.par$graphics.interval/dt), 1)
-
-    disp.par$time.tick.int <- "day"
-
-    # set the tick interval according to the size of the window
-    if(disp.par$graphics.window.length > 3*7*24)
-    {
-      disp.par$time.tick.int <- "week"
-    }
-
-    # ensure suffcient windows open to display results
-    disp.par$winid <- open.devices(1, title=run.par$id,
-                width=12, #disp.par$graphics.save.width,
-                height=8) #disp.par$graphics.save.height)
-
-    # for display should be in mm/hr
- #   disp.par$max.q <- convert.vals(disp.par$max.q)
-#    disp.par$max.rain <- convert.vals(disp.par$max.rain)
-	}
-  # return the updated display parameters
-  return(disp.par)
-}
-
-
-
-SetFigWindow <- function(xmn=0, xmx=1, ymn=0, ymx=1)
-{
-  # set the fg parameter to place a window at the given position expressed in
-  # proportion of the screen. Call with no parameters to reset to default window
-  par(fig=c(xmn,xmx,ymn,ymx))
-}
-
-# Plot discharge predictions, rainfall and potential (actual?) evapotranspiration,
-# storage deficits and root and unsat zone storages.
-# time buffer is in hours
-disp.results <- function (it,  # current time step
-                          tm,  # current simulation time
-                          qr,  # calculated discharge at outlet
-                          rain,
-                          evap,  # actula evapotranspiration
-                          groups,
-                          flows,
-                          stores,
-                          qobs=NULL,
-                          wb=NULL,
-                          ichan=1,   # channel indicators
-                          text.out=stdout(),
-                          log.msg = "",
-                          start, end,
-                          disp.par,
-                          run.par, sf=2)
-{
-    fmt <-  disp.par$"time.text.fmt"
-    # sim.delay expressed as hours, convert to seconds
-    if(tm >= start & !is.null(text.out))
-    {
-        # send to console by default,  disp.par$output.text.flows
-        #  txt.out <- paste(flows[,disp.par$output.text.flows], sep="\t", )
-        cat(format(tm, fmt), "\t", signif(qr[it,ichan],sf), file=text.out)   #
-#         if(length(qobs)>0)
-#         {
-#           cat("\t\t", signif(qobs[it,], sf), file=text.out)
-#           cat("\t\t", signif((qr[it,ichan]-qobs[it,])/qobs[it,]*100, 2), "%")
-#         }
-		if(any(flows$qof>0))
-		{
-			# overland flow distributed to channel over this time step
-            cat("\t\t", signif(flows[ichan, "qof"]*1000*groups[ichan,]$area/sum(groups$area),2), file=text.out)   #
-		}
-		#cat("\t\tmm/hr\n")   #
-		cat("\n")   #
-    }
-    else{
-        # waiting...
-    #    cat(".")
-    }
-
-    disp.par$disp.start <- start + run.par$"sim.delay"*3600
-
-    if(!disp.par$"graphics.show" | tm < disp.par$disp.start){return()}
-
-  title <- disp.par$"main"
-
-  # render either graphical output at this time step?
-  show.graphics <-  it%%disp.par$"graphics.interval"==0
-
-  # time buffer, the length of time around the current observation that should be displayed
-  buff <- disp.par$"graphics.window.length"
-
-  # graphical output, if requested, after specified time interval
-  if(show.graphics)
-  {
-   # dev.set(disp.par$winid)
- 		activate.device(1)
-    # buffer output
-    dev.hold()
-    on.exit(dev.flush())
-
-    qr <- GetTimeSeriesInputRange(qr, start, tm, verbose=FALSE)
-
-    # determine y axis range from
-    # (a) actual evapotranspiration
-    # (b) any observed discharges
-    # (c) max base flow routed through catchment outlet
-    # (d) explicitly specified limits
-#    ymax <- max(max(evap, disp.par$max.q, na.rm=T), qobs[], na.rm=T)
-#    ymax <- max(c(disp.par$max.q, qobs[], 0.01), na.rm=T)
-    par("mar"=c(5, 4.5, 5, 4.5))
-    evap <- evap[,"ae"]
-
-    # flows observed and simulated
-    disp_output(main=title,
-                qsim=qr,
-                evap=evap,
-                rain=rain,
-                tm=tm,
-                qobs=qobs,
-                par=disp.par)
-  }
-}
-
+# ###########################################
+# Routines for displaying simulation results
+#############################################
 
 
 disp.discharge.selection <- function(groups,
@@ -279,18 +80,13 @@ disp.discharge.selection <- function(groups,
                                       )
 
 {
-  # plot full range
-#  if(e<=s){stop("invalid time selection")}
   if(is.null(sel))
   {
     sel<-range(index(qsim))
   }
 
   buf <- as.numeric(difftime(sel[2], sel[1], units="hours")) #[2]-sel[1]
-  #  difftime(end, start, end,units="hours")
-  # calculate R for this period
-#  sel <- sel<-paste(s, "::", e, sep="")
-  #qobs <- qobs[sel]
+
   ae <- xts(1000*subset_zoo(evap, sel[1], sel[2]))
   if(!is.null(qobs))
   {
@@ -305,7 +101,7 @@ disp.discharge.selection <- function(groups,
   }
   if(title=="")
   {
-    # don't need so much space at top
+    # don'TRUE need so much space at top
     mar[3]<-3
   }
     par("mar"=mar)
@@ -350,63 +146,81 @@ length.period <- function(qr, units="hr")
 	return(res)
 }
 
+
+get_daily_maxima <- function(dat, freq="day")
+{
+	# split time series by day
+	day_vals <- split(dat, f = "day")
+
+	day_max <- sapply(day_vals, max)
+
+	# position of maximum within day
+	imax_day <- sapply(day_vals,
+									function(x)which.max(x))
+
+	# cumulative total number of records at the day
+	ilen <- c(0, cumsum(sapply(day_vals, nrow)))
+
+	# index of the maximum in each day within the donor series
+	ipos <- ilen[1:length(imax_day)] + imax_day
+
+	# returning the daily maxima (xts)
+
+	return(dat[ipos,])
+
+}
+
+
 # Output results of a Dynamic TOPMODEL run. Wrapper to disp.output
+# qsim	xts Supply if a time series other than that held by the run is displayed
+# show.daily.maxima Boolean If TRUE then the daily maxima of the series are shown as crosses
 plot.run <- function(run,
                      qsim=NULL,
-                     fn=NULL,
                      start = run$sim.start,
                      end = run$sim.end,
-                     par=disp.par(),
+                     fact=1000,
+                     par=get.disp.par(),
+										 show.maxima=FALSE,
                      ...)
 {
   sel <- paste0(start, "::", end)
-  rain <- run$rain[sel]*1000
-  evap <- run$ae[sel]*1000
+  rain <- run$rain[sel]*fact
+  evap <- run$ae[sel]*fact
 
+  par <- merge.lists(par, list(...))
   # observations, if supplied
   qobs <- run$qobs
 
-  if(is.null(qsim))
-  {
+  if(is.null(qsim)){
     # use the run output - can over
-    qsim <- run$qsim[sel]*1000
+    qsim <- run$qsim[sel]*fact
   }
 
-  if(!is.null(evap))
-  {
+  if(!is.null(evap)){
+  	# showing evapotranspiration
     ae <- evap[sel]
   }
-  else
-  {
+  else{
     ae <- NULL
   }
+
   qsim <- qsim[sel]
-  par$max.q <- max(c(par$max.q, qsim[]), na.rm=T)
+  par$max.q <- max(c(par$max.q, qsim[]), na.rm=TRUE)
 
   if(!is.null(qobs))
   {
-    qobs <- qobs[sel]*1000
-    try(print(NSE(qsim, qobs), silent=T))
+  	# obsevation dat supplied - scale (if necessary) and select
+    qobs <- qobs[sel]*fact
+    try(print(NSE(qsim, qobs), silent=TRUE))
     # update the limits
-    par$max.q <- max(c(par$max.q, qobs), na.rm=T)
-    cat("Observed time at peak = ", format(time_at_peak(qobs)), "\n")
+    par$max.q <- max(c(par$max.q, qobs), na.rm=TRUE)
 
+    # stats
+    cat("Observed time at peak = ", format(time_at_peak(qobs)), "\n")
     cat("Observed peak discharge = ", round(max(qobs),2), " mm/hr\n")
   }
   cat("Time at peak = ", format(time_at_peak(qsim)), "\n")
   cat("Peak discharge = ", round(max(qsim),2), " mm/hr\n")
-  #	nresp<- ncol(qresp)
-
-  # par(mar=c(4,4,3,4))
-  if(length(fn)>0)
-  {
-    jpeg(filename=fn, ...)
-    # larger axes labels
-    par("cex.lab"=1.5)
-    on.exit(dev.off())
-    par(mar=c(3,4,3,4.5))
-    title <- ""
-  }
 
   #
   disp_output(qsim=qsim,
@@ -418,6 +232,7 @@ plot.run <- function(run,
               start=start,
               end=end,
               qobs=qobs,
+              show.maxima=show.maxima,
               par=par, ...)
 
 }
@@ -426,7 +241,7 @@ plot.run <- function(run,
 #'
 #' @description Simple output of the results of a simulation.
 #'
-#' @details This will render the hydrograph, any observations, actual evapotranpiration, if supplied, and the rainfall hyetograph.
+#' @details This will render the hydrograph, any observations, actual evapotranspiration, if supplied, and the rainfall hyetograph.
 #' @export disp_output
 #' @param qsim Time series of simulated discharges.
 #' @param rain Time series of rainfall, at same interval as simulated values.
@@ -435,6 +250,10 @@ plot.run <- function(run,
 #' @param start Start time for plot in a format interpretable as POSIXct date time. Defaults start of simulated discharges.
 #' @param end End time for plot in a format interpretable as POSIXct date time. Defaults to end of simulated discharges.
 #' @param tm Display a vertical line at this time in the simulation. If NULL no line will be drawn.
+#' @param show.maxima Boolean Whether to show the daily maxima as points
+#' @param freq character Period for which maxima are identified, day by default
+#' @param pch.qsim  character Symbol for plotting maxima of simulations, if stipulated
+#' @param pch.obs  character Symbol for plotting maxima of observations, if these are supplied
 #' @param par Parameters controlling display output. A default set may be obtained through a call to disp.par.
 #' @param ... Any further named parameters will be treated as graphics parameters and applied throughout the plot.
 #' @author Peter Metcalfe
@@ -454,14 +273,13 @@ plot.run <- function(run,
 disp_output <- function(qsim,
                         rain, evap=NULL,
                         qobs = NULL, tm=NULL,
-                        par = NULL,
                         start=min(index(qsim)),
-                        end=max(index(qsim)),...)
+                        end=max(index(qsim)),
+												par=get.disp.par(lwd.rain=3, qint=0.1),
+												show.maxima=FALSE, freq="day", pch.qsim="+", pch.obs="*",
+												...)
 {
-  if(is.null(par))
-  {
-    par <- disp.par()
-  }
+  # display parameters merged with anything supplied in extra ellipsis
   par <- merge.lists(par, list(...))
   # save and restore display parameters
   old.par <- par(no.readonly = TRUE)
@@ -472,7 +290,7 @@ disp_output <- function(qsim,
 
   # add more space to right for axis titles, trim left margin a bit and shrink bottom margin
  # par("mgp"=c(2,1,0))
-  par("xpd"=F)
+  par("xpd"=FALSE)
 
   # if the time is specified then extend the time bounds around it
   if(!is.null(tm))
@@ -480,8 +298,8 @@ disp_output <- function(qsim,
     timeBuffer <- par$graphics.window.length # in hours
     # Window onto the desired period in the simulation, or all of it if limits not specified. Assume buffer in hours
     # rainfall and evapotranspiration on same plot (conversion to seconds for POSix time)
-    start  <- max(c(tm-timeBuffer*3600/2, start, na.rm=T))
-    end <- max(c(start+timeBuffer*3600, end, na.rm=T))
+    start  <- max(c(tm-timeBuffer*3600/2, start, na.rm=TRUE))
+    end <- max(c(start+timeBuffer*3600, end, na.rm=TRUE))
 
     # if past the end of the rainfall stop there
     if(end>max(index(rain)))
@@ -490,14 +308,11 @@ disp_output <- function(qsim,
     }
   }
 
-  # inverted plot of rainfall
-  # reversed limits, plus a buffer
- # ylim2 <- c(max(c(2*rain),na.rm=TRUE),min(Qr, 0, na.rm=T))
+  # subset the data to only this peiod
   sel <- paste0(start, "::", end)
-
   rain <- rain[sel]
-  qriv <- qsim[sel]
-
+  qsim <- qsim[sel]
+  qriv <- qsim
   nobs <- 0
   cols <- par$col.qsim
 
@@ -505,9 +320,16 @@ disp_output <- function(qsim,
   lwd <- par$lwd.qsim
 
   leg.txt <- expression(q[sim]) #"Simulated"
+  # if just one colour supplied for multiple simulations assume that this is applied to all of them
+  nsim <- ncol(qsim)
+  if(nsim >1 & length(cols) < nsim)
+  {
+    cols <- rep(cols[1], nsim)
+  }
+
  	if(length(qobs)>0)
  	{
- 	  # if observations add to output and colours plus vector of line widths and types used in disp.qsim
+ 	  # if observations supplied add to output and colours plus vector of line widths and types used in disp.qsim
  		qobs <- qobs[sel]
  		qriv <- cbind(qriv, qobs)
  		nobs <- ncol(qobs)
@@ -527,71 +349,106 @@ disp_output <- function(qsim,
   # rain at top, inverted
   layout(matrix(1:2), heights=c(par$prop, (1-par$prop)))
   on.exit(layout(matrix(1)))
-  # no margin at base
+  # no margin at base of this frame, sits on top of the discharge pane w/o gap
   with(par, par("mar"=c(0,xmar,ymar,xmar)))
 
-  # inverted plot of rainfall (note limits inverted)
+  # inverted plot of rainfall (limits reversed)
   disp.rain(rain,
             xlim = xlim,
             ylim = c(par$max.rain, 0),
-            lwd=2,
+            lwd=par$lwd.rain,
+  				#	cex=par$cex,
+  				#	cex.axis=par$cex,
             main=title)
 
   # axis is labelled if the position specified is at the top
   with(par, add_time_axis(side=3,
                 las=las.time,
                 labels=time.axis.side=="top",
-                cex=cex,
+                cex=par$cex,
                 fmt=time.fmt,
                 time.int=par$int.time))
 
   # border up the sides and top
-  axis(side=3, col.ticks = NA, labels = F)
-  axis(side=2, col.ticks = NA, labels = F)
+  axis(side=3, col.ticks = NA, labels = FALSE)
+  axis(side=2, col.ticks = NA, labels = FALSE)
 
+  # display the current simulation time as a red line - this shows it at top
   disp.pos <- !is.null(tm) && (tm>start) && (tm<end)
 
   if(disp.pos)
   {
-    disp.sim.time(tm, label=F)
+    # a line at the current position
+    disp.sim.time(tm, label=FALSE, lty=1, lwd=1)
   }
 
   title(main=par$main)
-  # calculate y limits from maximum of specified values evap, observed flows plotted on LH axis
-  ylim <- c(min(qsim, 0, na.rm=T), max(c(0.01, par$max.q), na.rm=T))
 
-#   par("cex.axis"=cex)
-#   par("cex.lab"=cex)
-  with(par, par("mar"=c(ymar,xmar,0,xmar)))
+  # calculate y limits from maximum of specified values evap, observed flows plotted on LH axis
+  ylim <- c(min(qsim, 0, na.rm=TRUE), max(c(0.01, par$max.q), na.rm=TRUE))
+
+
+  with(par, par("mar"=c(6,xmar,0,xmar)))
 
   evap <- evap[sel]
 	if(length(evap)>0 && length(which(is.finite(evap)))>0)
 	{
 	  leg.txt <- c(leg.txt, expression(E[a]))
-	  disp.evap(evap, ylim=ylim, col=par$col.evap)
-	  par(new=T)
+	  disp.evap(evap, ylim=ylim,
+	  					cex=par$cex,
+	  					col=par$col.evap)
+	  par(new=TRUE)
 	}
 
+  # simulated and observed discahrges
 	disp.qsim(qriv, xlim=xlim, ylim=ylim,
 	          cols=cols,
 					  qlab=par$lab.q,
 						lty=lty,
 						lwd=lwd,
+
 						cex=par$cex,
 						qint=as.numeric(par$int.q))
 
-  # line showing current time
+	if(show.maxima)
+	{
+
+		# daily maxima for the simulated discharges (or at frequency supplied in FALSE)
+		q_max_sim <- get_daily_maxima(qsim, freq=freq)
+		# Show only values over QMED
+		iper <- which(q_max_sim>quantile(q_max_sim, probs=0.5))
+		q_max_sim <- q_max_sim[iper,]
+		#max_obs <- get_daily_maxima(qriv[2]=FALSE)
+		graphics::points(x=index(q_max_sim), y=q_max_sim, pch=pch.qsim, col=par$col.qsim)
+
+		if(!is.null(qobs))
+		{
+		  q_max<- get_daily_maxima(qobs, freq=freq)
+		  iper <- which(q_max >quantile(q_max, probs=0.5))
+		  q_max <- q_max[iper,]
+
+		  #max_obs <- get_daily_maxima(qriv[2]=FALSE)
+		  graphics::points(x=index(q_max), y=q_max, pch=pch.obs, col=par$col.qobs[1])
+		}
+	}
+
+  # line showing current simulation time, and time label if desired
+	# set the display parameter par$time.pos.fmt to NULL or empty string to supress
 	if(disp.pos)
 	{
-	    disp.sim.time(tm, fmt=par$time.pos.fmt)
+	  label <- length(par$time.pos.fmt)>0
+	    disp.sim.time(tm, fmt=par$time.pos.fmt,
+	                  label=label,
+	                  lwd=1, lty=1)
 	}
+
 	# U-shaped borders
   box(bty="u")
 
   # time axis lines
   with(par, add_time_axis(side=1,
                                las=las.time,
-                               cex=cex,
+                               cex=par$cex,
                                # axis is labelled if the position specified is at the bottom
                                labels=time.axis.side=="bottom",
                                fmt=time.fmt,
@@ -611,65 +468,6 @@ disp_output <- function(qsim,
 
 }
 
-disp.sim.time <- function(tm, label=T, fmt="%d-%b-%y")
-{
-    if(label)
-    {
-        time.str <- format(tm, fmt )
-        mtext(side=1, at=tm, text=time.str, las=3,cex=0.8, line=0.25)
-    }
-    abline(v=tm, col="red",lwd=2)
-}
-
-add_time_axis <- function(side=1,
-                          las=par("las"),
-                          labels=T,
-													time.int="week",
-                          col="slategray", lty=2,
-                          cex=par("cex.lab"),
-													fmt="%d-%b-%y",...)
-{
-	#grid(col="slategray", nx=NA)
-	#  horz axis above with perpendicular labels - more ticks than default- compute tick locations
-	par("xaxp"=c(par("usr")[1:2], 1))
-	# time axis at top, add formatted labels and lines
-
-	# round_date is a lubridate method
-	tm.range <- lubridate::round_date(as.POSIXct(par("xaxp")[1:2], origin="1970-01-01"), "day")
-	tms <- seq(tm.range[1], tm.range[2], by=3600)		# hourly intervals
-
-	if(is.numeric(time.int))
-	{
-	  i.at <- which(lubridate::hour(tms) %% time.int==0)
-	}
-	else
-	{
-  	# more detail. get pretty breaks based on day numbers (date-times in seconds from t.origin)
-  	# use more lubridate methods
-  	i.at <- switch(time.int,
-  	"month"= which(lubridate::mday(tms)==1 & lubridate::hour(tms)==0),
-  	"week"= which(lubridate::wday(tms)==1 & lubridate::hour(tms)==0),
-  	"day"=which(lubridate::hour(tms)==0),
-      "hour"=which(lubridate::second(tms)==0)
-  	)
-	}
-
-	at <- tms[i.at]
-
-	if(labels)
-	{
-
-		labs <- at  # as.POSIXct(at, origin="1970-01-01")
-		labs <- format(labs, format=fmt)
-        for(iside in side)
-        {
-		      axis(side=iside, at = at, las=las, labels=labs, cex.lab=cex, ...)
-        }
-	}
-	abline(v=at, col=col, lty=lty)
-
-}
-
 
 # plot simulated discharges
 disp.qsim <- function(qsim, xlim=range(index(qsim)),
@@ -677,6 +475,7 @@ disp.qsim <- function(qsim, xlim=range(index(qsim)),
 											ylim=c(0, max(qsim)),
 											cols=qsim.cols(qsim),
 											qint=0.5,
+											qline=2.5,
 											qlab="Specific discharge (mm/hr)", ...)
 {
   if(prop<1)
@@ -696,11 +495,11 @@ disp.qsim <- function(qsim, xlim=range(index(qsim)),
            yaxt="n",
            bty="n", xlab="", ...)
 
-  add.q.axis(side=2, qsim, ylim, int=qint, lab=qlab)
+  add.q.axis(side=2, qsim, ylim, int=qint, line=qline) #lab=qlab)
   # horizontal grid lines up to max discharge
  #	ylim <- range(qsim)
 
-  at <- seq(floor(min(qsim, 0, na.rm=T)), ceiling(ylim[2]), by=qint)#  pretty(par("usr")[3:4])
+  at <- seq(floor(min(qsim, 0, na.rm=TRUE)), ceiling(ylim[2]), by=qint)#  pretty(par("usr")[3:4])
 #  at <- at[-length(at)]
   abline(h=at, col="gray", lty=2)
   abline(h=0, col="gray")
@@ -713,19 +512,6 @@ disp.qsim <- function(qsim, xlim=range(index(qsim)),
 
 }
 
-add.q.axis <- function(side=2, qsim, ylim=range(qsim), int=0.1, lab="", line=2.5, cex=par("cex.axis"),...)
-{
-  at <- seq(floor(min(qsim, 0, na.rm=T)), ceiling(ylim[2]), by=as.numeric(int))#  pretty(par("usr")[3:4])
-  #  at <- at[-length(at)]
-  abline(h=at, col="gray", lty=2)
-  abline(h=0, col="gray")
-  axis(side=side, at=at, cex.axis=cex)
-  # neater
-  mtext(text=lab, las=3, side=side, line=line,
-        font=par("font.lab"),
-        cex=cex) #par("cex.lab"))
-
-}
 
 # display actual evapotranspiration, in mm/hr. Axis is at least ymin high
 disp.evap <- function(evap,
@@ -745,10 +531,10 @@ disp.evap <- function(evap,
 #	if(length(which()))
     plot.zoo(evap, type="h", ylim=ylim, col=col, #make.transparent("brown"),
              xaxt="n", bty="n",
-             yaxt="n", main="", ann=F, lty=1, lwd=1, ylab="",xlab="", ...)
-#	axis.range <- range(evap, na.rm=T)
+             yaxt="n", main="", ann=FALSE, lty=1, lwd=1, ylab="",xlab="", ...)
+#	axis.range <- range(evap, na.rm=TRUE)
   # ensure axis is always at least ymin high, greater if the evap exceeds this
-	labs <- seq(0, ceiling(max(c(ymin, evap), na.rm=T)), by=0.2)
+	labs <- seq(0, ceiling(max(c(ymin, evap), na.rm=TRUE)), by=0.2)
 	axis(side=4, labels=labs, at=labs, cex.lab=cex)
 	mtext(text=text, las=3,
 				side=4, line=2.5, adj=0,
@@ -757,10 +543,12 @@ disp.evap <- function(evap,
 
 # inverted plot of rainfall
 disp.rain <- function(rain, prop=1, col=rain.cols(rain),
-                      xlim=range(index(rain)),
+                      xlim=range(as.numeric(index(rain))),
                       ylim=c(max(rain,na.rm=TRUE),0),
-                      text="Precipitation (mm/hr)", axes=T, side=4,
-                      cex=par("cex.axis"), line=2.5*cex,
+                      lwd=3,
+                      text="Precipitation (mm/hr)", axes=TRUE, side=4,
+											cex.axis=par("cex.axis"),
+                      cex.lab=par("cex.lab"), line=2, #*cex,
                       ...)
 {
     if(prop<1)
@@ -771,6 +559,7 @@ disp.rain <- function(rain, prop=1, col=rain.cols(rain),
         on.exit(par(fig=c(xflims,0,1)))
     }
 
+  # omit periods without rainfall
   rain[rain==0] <- NA
   plot.zoo(rain,
            xlim=xlim,
@@ -778,9 +567,10 @@ disp.rain <- function(rain, prop=1, col=rain.cols(rain),
            ylab="",
            xaxt="n",
            yaxt="n",
+           lend="square",
            #cex.main=1,
            bty="n",
-           lwd=2,
+           lwd=lwd,
            col=col, #rain.cols(rain),
            xlab="")
 
@@ -788,17 +578,17 @@ disp.rain <- function(rain, prop=1, col=rain.cols(rain),
 	if(axes)
 	{
 		# right hand axis - precipitation and pe
-		at <- pretty(range(rain, na.rm=T))
-		axis(side=side, at=at, labels=at, cex.lab=cex)
+		at <- pretty(range(rain, na.rm=TRUE))
+		axis(side=side, at=at, labels=at, cex.lab=cex.lab)
 
 		# grid lines
 		abline(h=at, lty=3, col="gray")
-		#     add_time_axis(side=3, labels=F)
+		#     add_time_axis(side=3, labels=FALSE)
 
 		mtext(text=text, las=3,
 					side=side, line=line,
 			#		font=par("font.lab"),
-					cex=cex)
+					cex=cex.axis)
 	}
 
 }
@@ -821,7 +611,7 @@ add.legend <- function(nrow=2,
                        legend = expression("Simulated",
                                             "Observed",  "Precipitation",
                                             E[a]),
-                       cex=par("cex.lab"),
+                       cex=par("cex"),
                       legend.col = c("blue", "green", "black", "brown"),
                        legend.title=NULL,yoff=-0.05,...
                        )
@@ -842,8 +632,8 @@ add.legend <- function(nrow=2,
     # xjust and yjust controls how legend justified wrt x and ycoord: 2=right / top justified (doc is wrong)
     legend(x=xlim[2], y=yoff, legend=legend, #ncol=length(titles),
            title=legend.title,cex=cex,
-           xpd=T,  # needed in order to plot outside figure margin
-           yjust=2, xjust=1, horiz=T,
+           xpd=TRUE,  # needed in order to plot outside figure margin
+           yjust=2, xjust=1, horiz=TRUE,
           # ncol=max(2, round(length(titles)/nrow+0.5)),
            col=legend.col, bg="white", lty=1, lwd=2)
     #bg="#FFFFFFCC")
@@ -863,7 +653,7 @@ disp.chan.stores <- function(groups, stores, ichan)
 	chan.groups$sd_max <-0.01
 	dat <- rbind(chan.groups$sd_max-chan.stores$sd, chan.stores$sd)
 	cols <- rbind(rep("blue", nchan), rep("white", nchan), names.arg = chan.groups$id)
-	barplot(horiz=T, dat, col=cols, xlab="Average depth (m)")
+	barplot(horiz=TRUE, dat, col=cols, xlab="Average depth (m)")
 
 }
 
@@ -932,19 +722,19 @@ disp.stores <- function(groups,stores,ichan=1, nlev=5)
 #     cols[1:2,drying] <- cols[2:1,drying]
 #   }
   # max height of sat zone, including space for "bedrock"
-  max.sz <- max(0.1+groups$sd_max)      #   max(rz + groups$sd_max, na.rm=T)
+  max.sz <- max(0.1+groups$sd_max)      #   max(rz + groups$sd_max, na.rm=TRUE)
   # excess (overland) storage
   ex <- stores$ex
 
   # make columns the same height, draw a dotted line at maximum sd
-  #  dat<-t(cbind(rz, stores$suz,stores$sd-stores$suz,groups$sd_max-stores$sd))
+  #  dat<-TRUE(cbind(rz, stores$suz,stores$sd-stores$suz,groups$sd_max-stores$sd))
   dat<- rbind(as.vector(max.sz-groups$sd_max), as.vector(groups$sd_max-stores$sd),
               as.vector(stores$sd), rz, ex)  #  maxh--)
 
 
-  ylim <- max(c(0,colSums(dat)),na.rm=T)
+  ylim <- max(c(0,colSums(dat)),na.rm=TRUE)
 
-  widths <- sqrt(groups$area/sum(groups$area, na.rm=T))
+  widths <- sqrt(groups$area/sum(groups$area, na.rm=TRUE))
 
   widths[is.na(widths)]<-0.2
   # shade unsaturated zone according to ammount of storage. value gives no. shading
@@ -962,7 +752,7 @@ disp.stores <- function(groups,stores,ichan=1, nlev=5)
          ylab="",
           width=widths,
          # ylab="Storage (m)",
-         cex.main=1, axes=F)
+         cex.main=1, axes=FALSE)
       #    ylim=c(ylim,0))
 
   mtext(side=2, text="Storage (m)", line=0)
@@ -978,12 +768,9 @@ disp.stores <- function(groups,stores,ichan=1, nlev=5)
          ncol=4,
          bty="n",
       #   bg="white",
-         xpd=T,
+         xpd=TRUE,
          legend=c("Sat. RZ", "Unsat RZ", "Unsat Zone", "Max SD"),cex=0.8, fill=col)
-  #browser()
 }
-
-require(fields)
 
 
 # returns the input ts subsetted by a time range

@@ -7,13 +7,13 @@
 upslope.area(dem, log = TRUE, atb = FALSE, deg = 0.1, fill.sinks = TRUE)
 }
 \arguments{
-\item{dem}{Elevation raster (in m), using a  projected coordinate system with identical x and y resolutions.}
+\item{dem}{raster  Elevation raster (in m), using a  projected coordinate system with identical x and y resolutions.}
 
-\item{log}{Return the natural log of the values.}
+\item{log}{Boolean  Return the natural log of the values.}
 
-\item{atb}{If TRUE, include both the upslope contributing area and the topographic wetness index \eqn{ln(a/tan(beta))}. Otherwise calculate just the upslope area.}
+\item{atb}{Boolean  If TRUE, include both the upslope contributing area and the topographic wetness index \eqn{ln(a/tan(beta))}. Otherwise calculate just the upslope area.}
 
-\item{deg}{Minimum intercell slope to identify with a sink (degrees).}
+\item{deg}{numeric  Minimum intercell slope to identify with a sink (degrees).}
 
 \item{fill.sinks}{Fill sinks before calculation using the threshold angle given by deg.}
 }
@@ -32,10 +32,9 @@ a.atb <- upslope.area(brompton$dem, atb=TRUE)
 sp::plot(a.atb, main=c("Upslope area (log(m^2/m))", "TWI log(m^2/m)"))
 }
 }
+\references{
+Quinn, P. FALSE., Beven, K. J., & Lamb, R. (1995). The In (a/tan/beta) index: How to calculate it and how to use it within the Topmodel framework. Hydrological processes, 9(2), 161-182.
+}
 \author{
 Peter Metcalfe and Wouter Buytaert
 }
-\references{
-Quinn, P. F., Beven, K. J., & Lamb, R. (1995). The In (a/tan/beta) index: How to calculate it and how to use it within the Topmodel framework. Hydrological processes, 9(2), 161-182.
-}
-

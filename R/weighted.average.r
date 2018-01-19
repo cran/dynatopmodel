@@ -1,4 +1,4 @@
-weighted.average <- function(vals, weights)
+weighted.mean <- function(vals, weights)
 {
   sum(vals*weights/sum(weights))
 }

@@ -1,6 +1,6 @@
 # write a log entry console and/or file
 LogEvent <- function(msg, tm=NULL, # time can be actual run time or simulation time
-                     warn=F)  #, logout=stderr())  #System.getenv("log"))  # destination
+                     warn=FALSE)  #, logout=stderr())  #System.getenv("log"))  # destination
 {
 
      # browser()
@@ -8,7 +8,7 @@ LogEvent <- function(msg, tm=NULL, # time can be actual run time or simulation t
     msg <- paste(as.character(tm), ": ", msg)
     if(warn)
     {
-      warning(msg, immediate.=T)
+      warning(msg, immediate.=TRUE)
     }
     else
     {

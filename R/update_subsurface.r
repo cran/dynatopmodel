@@ -23,48 +23,62 @@
 # ------------------------------------------------------------------------------
 # Input
 # ------------------------------------------------------------------------------
-# Returns (each HSU)
+# Returns (each unit)
 # ------------------------------------------------------------------------------
 # flows$qbf       : specific base flow at time step, per grouping
 # flows$qin       : total input (upslope) input, per grouping
 # stores$sd       : updated specific storage deficits: unsat drainage and qin inputs, qbf out
 # flows$qof       : updated specific overland flux per areal grouping
-#
-# weighting matrix
 ################################################################################
 update.subsurface <- function (groups, flows, stores,
-						  w,
-                          pe=0, # potential evap
-                          tm,   # current simulation time
-                          ntt,  # no. inner time steps
-                          dt,   # main time step
-                          dqds,   # gradient functions
-                          ichan=1)
+						              w,           # weighting matrix
+						              A,           # complementary weighting matrix A= diag(1/a, N, N) %*% t(w) %*% diag(a, N, N) - identity.matrix(N)
+                          pe=0,        # potential evap
+                          tm,          # current simulation time
+                          ntt,         # no. inner time steps
+                          dt,          # main time step
+                          dqds=NULL,   # gradient functions
+                          ichan=1,
+						              log=NULL)
 {
-  # save storages
-  stores1 <- stores
-
   dtt <- dt/ntt
-  # intial river flux is given by the saturation excess storage redistributed from
-  Qriv <- 0
 
-  # subsurface flows for subsurface and channels at inner time steps
-  qriv.in <- matrix(0,ncol=length(ichan), nrow=ntt)
-  colnames(qriv.in) <- groups[ichan,"id"]
-  qriv.out <- qriv.in
-
-  # base flow excess (per inner time step)
- # qb.ex <- matrix(0,ncol=nrow(groups), nrow=ntt)
-  # record of actual evapotranpiration over each inner step
+  # record of actual evapotranpiration and unsaturated drainage over each inner step
   ae.dtt <- matrix(0,ncol=nrow(groups), nrow=ntt)
+  uz.inner <- ae.dtt 
+  
   timei<-tm
+  
+  # if(tm == as.POSIXct("2015-11-20 09:30:00"))
+  # {
+  #   browser()
+  # }
+  # total input into channel
+  Qriv <- rep(0, length(ichan))
+  
+  # area of the channel network
+  achan <- groups[ichan,]$area
+  
+  flows$ex <- 0
+
+	ex <- 0
+	
+	a <- groups$area 
+	N <- nrow(w)
+	stores0 <- stores
+  # set surface excess storages to zero. add return flow and saturation excess in loop
+	#stores$ex[] <- 0
+	
   for(inner in 1:ntt)
   {
-    iter <- 1
+  	# save storages
+  	sd0 <- stores$sd
+  	
   	# apply rain input and evapotranspiration (*rates*) across the inner time step
     # note that rain and actual evap are maintained in flows
     updated <- root.zone(groups, flows, stores, pe,
-                    dtt, timei, ichan)        #
+                         dtt, timei, ichan)        
+    
     # ae is removed from root zone only - note that original DynaTM has code to remove evap
     # at max potential rate from unsat zone
     flows <- updated$flows  # includes ae and rain
@@ -74,65 +88,86 @@ update.subsurface <- function (groups, flows, stores,
     updated <- unsat.zone(groups, flows, stores, dtt, timei, ichan)
   	flows <- updated$flows
     stores <- updated$stores
-
+    
     # Distribute baseflows downslope through areas using precalculated inter-group
-    # flow weighting matrix to give input flows for at next time step - required for ann implicit soln
-    # note total input qin returned andconverted within kinematic routine
-#     if(any(flows$qbf > groups$qbmax*0.75, na.rm=T))
-#     {
-#     #  iter <- round(20/ntt)
-#    #   browser()
-#     }
-#     dtt.ode <- dtt/iter
-#     for(i in 1:iter)
-#     {
-   #   message("Increasing no. iterations")
-    # solution of ODE system. Now uses the Livermore solver by default
-      updated <- route.kinematic.euler(groups, flows, stores, dtt,
-    								ichan=ichan, w=w, time=timei,
+    # solution of ODE system. Uses the Livermore solver lsosa
+    flows <- route.kinematic.euler(groups, flows, stores, dtt,
+    								ichan=ichan, w=w, time=timei, A=A,
                     dqds=dqds)
+    if(any(flows$qbf > groups$qbf_max))
+    {
+      #browser()
+    }
+    # throttling downslope flow to maximum at saturation
+    flows$qbf <- pmin(flows$qbf, groups$qbf_max)
+    
+    # distributing subsurface flows downslope
+   	flows$qin <- as.vector((flows$qbf*groups$area) %*% w) # total discharge into areas (should use Qin really)
+   	
+    # specific input
+   	qin <- flows$qin/groups$area
+   	
+   	# excess over capacity generates return flow
+   	# rate of generation of return flow is excess over maximum of net filling of area
+   	ret_fl <- pmax(qin-flows$qbf-groups$qbf_max, 0)
+ 
+   	# remove it from the net input as has appeared on the surface!
+   	qin <- qin - ret_fl
+   	
+   	# excess surface storage is generated in this time step. 
+   	stores$ex <- stores$ex + ret_fl*dtt
+   	
+   	# +ve = net drainage; -ve net filling
+    qdrain <- flows$qbf-qin
+    
+   	if(any(ret_fl>0)){
+   	 #  browser()
+   	}
 
-			flows <- updated$flows
+  	# update storage deficits with the new input and output flows
+  	# deficit reduced by upslope input and unsat drainage and
+  	# increased by downslope flow in to other units
+   	# existing excess storage is removed from deficit
+  	SD.add <- (qdrain - flows$uz) * dtt 
+  	
+  	# deficit in channel doesn't mean anything
+		SD.add[ichan] <- 0
+		
+		# update
+  	stores$sd <- stores$sd + SD.add
 
-     # update stores and route any excess flow
-     updated <- update.storages(groups, flows, stores, dtt, ichan, tm=time)
-     stores <- updated$stores
+  	# -ve SD = excess surface storage
+  	sat.ex <- pmin(stores$sd, 0)
+  	stores$ex <- stores$ex - sat.ex #    # + flows$ex*dtt
+  	
+  	# defict always >= 0
+  	stores$sd <- pmax(stores$sd, 0)
 
-#    if(any(flows$ex>0, na.rm=T))
-#    {
- #     browser()
-#    }
-     # stores updated by net baseflow and drainage from unsat zone across time step
-#    }
-
-  	# distribute fluxes to give new estimate for qin(t) given qbf(t) determined above
-  	# base flux transferred from other areas across inner time step
-  	flows$qin <- as.vector(dist.flux(groups, flows$qbf,
-  												 ichan = ichan,
-  												 W=w))
-
- 		# channel flow into input
-    qriv.in[inner,] <- flows[ichan,]$qin
     # actual ae at this time step
     ae.dtt[inner,] <- flows$ae
-    # total excess over inner time step: sat excess surface storage and base flow excess
-    # record base flow into and out of all river reaches
-#    qriv.out[inner,] <- flows[ichan,"qbf"]
-
-    flows$ex <- 0
-
-    timei <- timei + dtt*3600
+    
+    fc <- flows[ichan, ]
+  	# total flux transferred into river plus rainfall minus evap
+    Qriv <- Qriv + (fc$qin + (fc$rain-fc$ae) * achan)/ntt
+    
+    # increase in deficit
+ #   sd.add <- (flows$qbf - flows$qin/groups$area -  flows$uz)*dtt  
+    
+  	# record intermediate unsaturated drainage
+  	uz.inner[inner,] <- flows$uz  
   }
-
+	
+#	stores$sd <- stores$sd + SD.add
+	
+	# total drainage over time step (catches situation where unsat zone drains over entire period)
+	flows$uz <- signif(colMeans(uz.inner), 3)
+	
   # average out total ae
   flows$ae <- colMeans(ae.dtt)  #Sums(ae.dtt)*dtt/dt
 
-	# channel flows are rain in over time step minus evapotranspiration, which doesn't vary according
-	# to root zone storage, only whether rain is falling at the time. take mean of total input across inner loop
-	flows[ichan,]$qin <- colMeans(qriv.in) + (flows[ichan,]$rain-flows[ichan,]$ae)*groups[ichan,]$area
-
-  Qriv <- colMeans(qriv.out)#+stores[ichan,]$ex
-
+  # total input into channel
+  flows[ichan,]$qin <- Qriv
+  
   # specific overland flow (rate)
 #  flows$qof <- stores$ex/dt
 
@@ -177,7 +212,7 @@ update.storages <- function(groups, flows, stores, dtt, ichan, tm)
 
 
 	# do not allow base flow to reduce storage  below zero. This should be routed overland
-	saturated <- which(stores$sd<=0)  #    #setdiff(which(stores$sd<=0), ichan)
+	saturated <- which(stores$sd < 0)  #    #setdiff(which(stores$sd<=0), ichan)
 	if(length(saturated)>0)
 	{
 		#LogEvent(paste("Base flow saturation in zones ", paste(groups[saturated,]$tag, collapse=",")), tm=time)

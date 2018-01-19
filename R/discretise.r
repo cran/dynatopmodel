@@ -4,33 +4,46 @@
 #' @details This applies the given cuts to the supplied landscape layers to produce areal groupings of the catchment.
 #' @export discretise
 #' @import raster
-#' @param layers A multi-band raster (stack) comprising the catchment data. This should be in a projected coordinate system (or none) and have reqular cells. The first layer should be the elevation raster, and subsequent (named) layers should supply the landscape data drawn in to create the discretisation
+#' @param layers A multi-band raster (stack) comprising the catchment data. This should be in a projected coordinate system (or none) and have regular cells. The first layer should be the elevation raster, and subsequent (named) layers should supply the landscape data drawn in to create the discretisation
 #' @param cuts A list of cuts of the form layer_name=number. Each name should correspond to a layer name in the layers parameter.
 #' @param order.by Name of layer whose values will be use to sort the response units, in decreasing order. Defaults to the name of the first cut
-#' @param area.thresh	Minimum area for response units, expressed as a percentage of the catchment plan area, excluding channel cells. Areas smaller than this are aggregate dwith adjacent areas until exceeding the threshold aea
-#' @param chans	Raster containing channel reach locations, of the same dimensions and resolution of the DEM and other catchment layers. The reaches should be numbered sequentially and any areas not containing part of the channel should be NA. If a second band is supplied with values 0-1 then this is taken to be the proportion of the corresponding non-zero cell occuppied by the channel. If this layer is not present then the proportion is infered from the channel width as p = min(1, chan.width/xres(dem))
+#' @param area.thresh	Minimum area for response units, expressed as a percentage of the catchment plan area, excluding channel cells. Areas smaller than this are aggregated with adjacent areas until exceeding the threshold area
+#' @param chans	Raster containing channel reach locations, of the same dimensions and resolution of the DEM and other catchment layers. The reaches should be numbered sequentially and any areas not containing part of the channel should be NA. If a second band is supplied with values 0-1 then this is taken to be the proportion of the corresponding non-zero cell occupied by the channel. If this layer is not present then the proportion is inferred from the channel width as p = min(1, chan.width/xres(dem))
 #' @param chan.width Channel width, in same units as DEM. Only used if chans doesn't contain a layer to specify the proportion of each river cell comprised of the channel.
-#' @return A list comprising the following
-#' @return weights	Flux distribution (weighting) matrix. A ngroup x ngroup matrix defining the downslope flux distributions between groups, between land and the channel, and between channel reaches, where nh is the number of land discretisations identified by applying cuts to the catchment layers and nc the numbbr of channel reaches defined. The nth row gives the proportions of flow out of HRU #n to other response units and the channel. Row sums should thus always add to 1. The m th column gives the proportion of flow from the other response units into the m th group.
-#' @return groups A data frame whose rows comprising the names, plan area and model parameters of each response unit. See Beven and Freer (2001) and Metcalfe et al (2015) for a description of these parameters
-#' @return hru	Multi-band raster comprising the original rasters that the specifed cuts were applied to produce the discretisation; the channel network;the resultant response unit locations
+#' @param burn.hrus list  Named list of geometries (supplied as rasters) to burn into discretisation of HRUs that will be stamped onto the classification. Overrides any classification already defined
+#' @param remove.areas  Boolean Whether to remove areas that fall into classes with smaller areal contribution than the supplied threshold (default FALSE)
+#' @param renumber  Boolean Renumber HRUs after discretisation so that their IDS are in numerical order (default TRUE)
+#' @param riv.cells.na Boolean Remove river cells from discretisation (default FALSE)
+#' @param hrus list Unused, maintained for backward compatibility
+#' @param order  Boolean Reorder HRUs after discretisation so that those with highest TWI come first (approximate to distances from channel). Default FALSE
+
+#' @return A list comprising the following:
+#' @return groups A data frame whose rows comprising the names, plan area and model parameters of each response unit. See Beven and Freer (2001) and Metcalfe et al. (2015) for a description of these parameters
+#' @return weights	Flux distribution (weighting) matrix for routing of subsurface flow downslope through the response units. If n is the number of response units (including channel "unit(s)") this is an n x n matrix.
+#' Row sums should thus always add to 1. The elements of the i-th row give the proportion of flow directed from response unit i to the other units
+#' @return cuts list Cuts applied to produce these HRUs
+#' @return area.thresh  Area threshold specified
+#' @return layers Multi-band raster comprising the the original rasters that the specified cuts were applied to produce the discretisation; the channel network
+#' @return chans The channel raster
+#' @return hru	The resultant response unit locations
 #' @examples
-#' # Landcover and soils are fairly homogenous throughout the Brompton catchment;
-#' # storm response of the appears to be mostly controlled by proximity to the
-#' # channel network. A simple discretisation according to flow distance from the
-#' # nearest channel thus appears to capture the dynamics during the  2012 event
-#' # without introducing unnecessary complexity.
+#' # Landcover and soils are fairly homogenous throughout the Brompton catchment.
+#' # Due to the extensive artifical sybsurface drainage discharging directly into 
+#' # the channel it is hypothesied that the storm response is largely mostly controlled 
+#' # by proximity to the network. A simple discretisation according to flow distance 
+#' # from the nearest channel thus appears to capture the dynamics without introducing
+#' # unnecessary complexity.
 #'\dontrun{
 #' require(dynatopmodel)
 #'
 #' data(brompton)
 #'
-#' chans <- build.chans(brompton$dem, drn=brompton$drn, chan.width=2)
-#' # sort by distance but want areas closest the channel to come first
+#' chans <- build_chans(brompton$dem, drn=brompton$drn, chan.width=2)
+#' sort by distance from the channel network, but want areas closest the channel to come first
 #' layers <- addLayer(brompton$dem, 2000-brompton$flowdists)
-
-#' disc <- discretise(layers, cuts=c(flowdists=5), chans=chans, area.thresh=2/100)
-#'
+#' disc <- discretise(layers, cuts=c(flowdists=10), chans=chans, area.thresh=0.5/100)
+#' rm(chans)
+#' rm(layers)
 #' write.table(disc$groups, sep="\t", row.names=FALSE)
 #'}
 
@@ -39,11 +52,18 @@ discretise <- function(layers,
                        cuts=list(a=10),
                        area.thresh=2/100,
                        order.by=names(cuts)[[1]],
-                       chan.width=5)
+											 riv.cells.na=FALSE,
+											 renumber=FALSE,
+											 order=FALSE,
+											 burn.hrus=NULL,
+                       chan.width=5,
+										   remove.areas=TRUE,
+											 hrus=NULL)
 {
   dem <- layers[[1]]
   catch <- layers
 
+  #  check to see if rasters are identical in resolution and extent
   compareRaster(dem, chans)
 
   if(is.null(area.thresh)){
@@ -62,35 +82,79 @@ discretise <- function(layers,
   }
   else
   {
-    cellprops <- min(1, chan.width/xres(chans))
+  	# calculate the proportion of the cells occupied by the channel
+  	cellprops <- chans[[1]]- chans[[1]]
+    cellprops <- cellprops + min(1, chan.width/xres(chans))
   }
 
-  nchan <- length(unique(chans[[1]], na.rm=T))
+  nchan <- length(unique(chans[[1]], na.rm=TRUE))
   #  nchan <- nrow(drn)
   # channel identifiers
   ichan <- 1:nchan
 
   message("Combining layers...")
-  cm <- combine.groupings(dem, catch=catch, chans=chans,
-                          cuts=cuts, thresh=area.thresh)
-  #nms <- names(cuts)
+  # cuts up catchment into discrete HRUs according to the cuts supplied
+  # note that cuts that refer to layers that will be burned are ignored
+  cm <- combine.groupings.2(dem,
+  												catch=catch,
+  												chans=chans,
+                          cuts=cuts,
+													river.cells.na=riv.cells.na,
+  												thresh=area.thresh,
+													renumber = renumber,
+											#		burn.hrus=burn.hrus,
+													remove.areas=remove.areas)
+
   # default sort order is using upslope area
+  if(!"atb" %in% names(catch))
+  {
+  	atb <- upslope.area(dem, atb=TRUE)$atb
+  }
+  else
+  {
+  	atb <- catch[["atb"]]
+  }
 
-  # reorder by upslope area
-  zonal.vals <- raster::zonal(catch, cm[[1]])
-  # create sequences for ordering the HRUs
-  ord.args <- lapply(as.list(order.by),
-                     function(x)
-                     {
-                       zonal.vals[, x]
-                     })
-  ords <- do.call(order, c(ord.args, decreasing=T))  # by default zone with higher averages appear first
-  sub.df <- data.frame(cbind(zonal.vals[,"zone"], zonal.vals[ords,"zone"]))
+  if(order)
+  {
+    # reorder by upslope area
+    # first layer in landscape is the HRU ID
+    zonal.vals <- raster::zonal(atb, cm[[1]])
 
-  cm[[1]] <- subs(cm[[1]], sub.df)
-  nms <- names(cm)
-  nms[[1]]<- "HRU"
-  names(cm)<-nms
+    #  wetness index by zone (HRU)
+    ords <- order(zonal.vals[ ,2], decreasing=TRUE)
+
+    # create sequences for ordering the HRUs
+    # ord.args <- lapply(as.list(order.by),
+    #                    function(x)
+    #                    {
+    #                      zonal.vals[, x]
+    #                    })
+  #  ords <- do.call(order, c(ord.args, decreasing=TRUE))  # by default zone with higher averages appear first
+    sub.df <- data.frame(cbind(zonal.vals[,"zone"], zonal.vals[ords,"zone"]))
+
+    cm[[1]] <- subs(cm[[1]], sub.df)
+
+    nms <- names(cm)
+    nms[[1]]<- "HRU"
+    names(cm)<-nms
+  }
+  # "stamp in" any extra layers, in the order in which they're supplied (i.e.
+  # first element to last, each overwriting the previous)
+  # the classifications overwrite any previous classes and are not subject to
+  # checking for their szie
+  if(length(burn.hrus)>0)
+  {
+    nms <- names(layers)
+    # attempt to add the additional HRU to the layers for the discretisation
+    for(layer in burn.hrus)
+    {
+      compareRaster(layer, dem)
+      layers <- addLayer(layers, layer)
+    }
+    names(layers) <- c(nms, names(burn.hrus))
+    cm[[1]] <- burn_layers(cm[[1]], burn.hrus)
+  }
 
   message("Building group info table....")
 
@@ -104,80 +168,24 @@ discretise <- function(layers,
   groups[ichan,"vof"] <- NA
   groups[-ichan,"vchan"] <- NA
 
-  # add in zonal info
-  #	zchan <- zonal.vals[1, names(cuts)]
-  #  	zchan[] <- NA
-  #  	groups <- cbind(groups, rbind(zchan, zonal.vals[ords, names(cuts)]))
-  nms <- names(cm)
-  # invalid cuts removed
-  layer.nms <- nms[2:length(nms)]
-
+  # generate the intergroup flux weightng matrix
   w<-get.flow.distribution.matrix(dem,
                                   cm=cm[[1]],
                                   reaches=addLayer(chans[[1]], cellprops))
 
+  # return a list of group table, the landscape layers used,
+  # the channel loactions, HRU spatial distribution and the flow weighting matrix
   return(list(
-    "groups"=groups,
-    "hru"=cm[[1]],
-    "weights"=w))
+     groups=groups,
+     layers=layers,
+     chans=chans,
+     cuts=cuts,
+     area.thresh=area.thresh,
+     hru=cm[[1]],
+     weights=w))
 }
 
-
-
-
-
-#load.source("dtm.main.r", chdir=T)
-
-require(raster)
-require(xts)
-
-get.sim.range <- function(proj)
-{
-  #  require(intervals)
-  obs <- proj$obs$obs
-  pe <- proj$obs$pe
-  qobs <- proj$obs$qobs
-  try(proj$sim.start <- as.POSIXct(proj$sim.start), silent=T)
-  try(proj$sim.end <- as.POSIXct(proj$sim.end), silent=T)
-
-  if(length(proj$sim.start)==0)
-  {
-    s1 <- NA
-    s2 <- NA
-    s3 <- NA
-    try(s1 <- start(obs), silent=T)
-    try(s2 <- start(pe), silent=T)
-    try(s3 <- start(qobs), silent=T)
-
-    proj$sim.start <- max(c(s1, s2, s3), na.rm=T)
-    if(!is.null(proj$sim.start))
-    {
-      message(paste("Start of simulation inferred from input as ", proj$sim.start))
-    }
-  }
-  if(length(proj$sim.end)==0)
-  {
-    e1 <- NA
-    e2 <- NA
-    e3 <- NA
-    try(e1 <- end(obs), silent=T)
-    try(e2 <- end(pe), silent=T)
-    try(e3 <- end(qobs), silent=T)
-    proj$sim.end <- min(c(e1, e2, e3), na.rm=T)
-    if(!is.null(proj$sim.end))
-    {
-      message(paste("End of simulation inferred from input as ", proj$sim.end))
-    }
-    if(proj$sim.end < proj$sim.start)
-    {
-      stop("Error: sim.start after end. Check supplied data and values")
-    }
-  }
-  return(proj)
-}
-
-
-exists.not.null <- function(obj.name, check.file=T, warn=NULL)
+exists.not.null <- function(obj.name, check.file=TRUE, warn=NULL)
 {
   res <- FALSE
   # calling frame / environment, up one level in calling stack, must be at least one
@@ -211,12 +219,12 @@ convert.to.specific.discharges <- function(proj, q)
   a <- with(proj, sum(length(which(!is.na(dem[])))*xres(dem)*yres(dem)))
   # assumme in cu.m/s
   res <- 3600*q/a
-  if(max(res, na.rm=T)>1){warning("Very large specific discharges calculated: check input not in mm")}
+  if(max(res, na.rm=TRUE)>1){warning("Very large specific discharges calculated: check input not in mm")}
 
   return(res)
 }
 
-add.layers <- function(proj, reload=F)
+add.layers <- function(proj, reload=FALSE)
 {
 	nms <-  dir(proj$dir, "\\.shp")
 	if(!reload)
@@ -286,109 +294,19 @@ aggregate_observations <- function(proj)
   try(obs$pe <- disaggregate_xts(proj$obs$pe,
                                  ser.start=proj$sim.start,
                                  ser.end=proj$sim.end,
-                                 dt=proj$dt, is.rate=T))
+                                 dt=proj$dt, is.rate=TRUE))
   try(obs$rain <- disaggregate_xts(proj$obs$rain,
                                    ser.start=proj$sim.start,
                                    ser.end=proj$sim.end,
-                                   dt=proj$dt, is.rate=T))
+                                   dt=proj$dt, is.rate=TRUE))
   # note observed flows required in specific discharge m/hr
   try(obs$qobs <- disaggregate_xts(proj$obs$qobs,
                                    ser.start=proj$sim.start,
                                    ser.end=proj$sim.end,
-                                   dt=proj$dt, is.rate=T))
+                                   dt=proj$dt, is.rate=TRUE))
 
   return(obs)
 }
-
-# simple output of results, allowing the simulated values to be supplied separately
-plot.run <- function(run,
-                     qsim=NULL,
-                     cols=c("blue", "green"),
-                     fn=NULL,
-                     main="",
-                     start = run$sim.start,
-                     evap=run$evap[,"ae"]*1000,
-                     end= run$sim.end,
-                     par=disp.par(),
-                     ...)
-{
-  sim.start <- as.POSIXct(start, tz="GMT")
-  sim.end <- as.POSIXct(end, tz="GMT")
-
-  sel <- paste0(sim.start, "::", sim.end)
-  rain <- as.xts(run$rain)[sel]*1000
-  qobs <- run$qobs[sel]*1000
-  if(is.null(qsim))
-  {
-    qsim <- run$qsim*1000  #r[sel]/run$catch.area*1000
-  }
-
-  if(!is.null(evap))
-  {
-    ae <- evap[sel]
-  }
-  else
-  {
-    ae <- NULL
-  }
-  qsim <- qsim[sel]
-
-  #  try(print(NSE(qobs[sel]), silent=T))
-
-  # try(print(format("time at peak =%H:%M", format(time_at_peak(qsim))))
-  #	nresp<- ncol(qresp)
-
-  par$max.q <- max(c(disp.par$qmax, qobs[], qsim[]), na.rm=T)
-
-  # par(mar=c(4,4,3,4))
-  if(length(fn)>0)
-  {
-    jpeg(filename=fn, width=1024, height=768)
-    # larger axes labels
-    par("cex.lab"=1.5)
-    on.exit(dev.off())
-    par(mar=c(3,4,3,4.5))
-    title <- ""
-  }
-
-  # everything
-  disp.output(main=main,
-              qsim=qsim,
-                  #		start=sim.start,
-                  #		end=sim.end,
-              evap=ae,
-              rain=rain,
-              tm=NULL,
-              qobs=qobs,
-              par=par, ...)
-
-}
-
-
-# # plot of simulated discharges etc after
-# disp.run.results <- function(run,
-#                              qmax=NULL, legend=F,
-#                              title = "",
-#                              disp.par = disp.par(),
-#                              ...)
-# {
-#   qobs <- run$qobs
-#   layout(matrix(1))
-#   qmax <- max(run$qsim, run$qobs, na.rm=T)*1000*1.25
-#   qsim <- run
-#   pe <- run$evap
-#   par(family="serif")
-#   disp.par$legend.show <- legend
-#   disp.par$title.main<- title
-#   dDischargeSelection(qsim=run$qsim, evap=run$evap[,"ae"], rain=run$rain, qobs= run$qobs,
-#                             qmax=qmax,disp.par=disp.par,...)
-#   #, run.par=run.par)
-#
-#
-# }
-
-
-
 
 
 # apply the given parameters to groups in all discretisations
@@ -402,7 +320,7 @@ apply.params <- function(proj, params, which=1:length(proj$disc))
                              function(disc)
                              {
 
-                               vals <- matrix(rep(unlist(params),nrow(disc$groups)), nrow=nrow(disc$groups), byrow=T)
+                               vals <- matrix(rep(unlist(params),nrow(disc$groups)), nrow=nrow(disc$groups), byrow=TRUE)
                                disc$groups[,names(params)]<- vals
 
                                return(disc)
@@ -413,17 +331,17 @@ apply.params <- function(proj, params, which=1:length(proj$disc))
 
 
 # graphics and text output
-gr.on <- function(proj, spatial=F)
+gr.on <- function(proj, spatial=FALSE)
 {
-  return(graphics.on.off(proj,T, spatial))
+  return(graphics.on.off(proj,TRUE, spatial))
 }
 
-gr.off <- function(proj, spatial=F)
+gr.off <- function(proj, spatial=FALSE)
 {
-  return(graphics.on.off(proj, F, spatial))
+  return(graphics.on.off(proj, FALSE, spatial))
 }
 
-graphics.on.off <- function(proj, val=T, spatial=F)
+graphics.on.off <- function(proj, val=TRUE, spatial=FALSE)
 {
   proj$disp.par$graphics.show <- val
   if(spatial)
@@ -454,7 +372,7 @@ plot.run.response <- function(run,   # dtm run output
                                qresp, # response series
                                evap=NULL,
                                ymax=NULL,
-                                show.qobs=F,
+                                show.qobs=FALSE,
                                fn=NULL,
                                lwd=1,
                                lty=1,
@@ -491,7 +409,7 @@ plot.run.response <- function(run,   # dtm run output
            lty=lty,
            start=start,
            end=end,
-           #legend=F,
+           #legend=FALSE,
          #  legend.col=cols,
            ...)
 
@@ -516,7 +434,7 @@ plot.q <- function(proj,
   run$qobs <- NULL
   run$rain <- proj$obs$rain
 
-  if(evap==F)
+  if(evap==FALSE)
   {
     evap <- NULL
   }
@@ -535,32 +453,5 @@ plot.q <- function(proj,
            lty=lty,
            ...)
 
-}
-
-get.calib.dir <- function(proj.ex)
-{
-
-  s <- format(proj.ex$sim.start, "s=%Y-%m-%d")
-  e <- format(proj.ex$sim.end, "e=%Y-%m-%d")
-  return(paste0(s, e, collapse=","))
-}
-
-# return the goodness of fit for a simulation run
-gof.run <- function(run, pos=1) # specify column for multiple results
-                    #s=),
-                    #e=)
-{
-  sel <- paste0(first(index(run$qsim)), "::", last(index(run$qsim)))
-  pos <- min(pos, ncol(run$obs$qobs))
-  qobs <- run$qobs[sel, pos]
-  if(!is.null(run$qobs) & nrow(qobs)==nrow(run$qsim))
-  {
-
-    res <- run.gof(run$qsim, qobs)
-    #     res <- run.gof(as.vector(subset_zoo(run$qsim, s, e)),
-    #                    as.vector(subset_zoo(run$qobs[,pos], s, e)))
-    #
-    return(res)
-  }
 }
 

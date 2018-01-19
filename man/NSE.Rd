@@ -7,14 +7,14 @@
 NSE(qsim, qobs, digits = 2)
 }
 \arguments{
-\item{qsim}{Time series or vector of simulated values.}
+\item{qsim}{Time series or vector of simulated values}
 
-\item{qobs}{Time series or vector of observations.}
+\item{qobs}{Time series or vector of observations}
 
-\item{digits}{No. DP in returned value.}
+\item{digits}{No. decimal places in returned value}
 }
 \value{
-A number <= 1 indicating the goodness of fit of the simulated series against observations (1= perfect fit). Values of >0.8 are generally regardred as "behavioural".
+A number <= 1 indicating the goodness of fit of the simulated series against observations (1= perfect fit). Values of >0.8 are generally regarded as "behavioural"
 }
 \description{
 Returns the the NSE (NSE, Nash and Sutcliffe, 1970) of the simulated values against the given observations.
@@ -30,10 +30,9 @@ data(brompton)
 NSE(brompton$storm.run$qsim, brompton$storm.run$qobs)
 }
 }
-\author{
-Peter Metcalfe
-}
 \references{
 Nash, J., & Sutcliffe, J. V. (1970). River flow forecasting through conceptual models part I-A discussion of principles. Journal of hydrology, 10(3), 282-290.
 }
-
+\author{
+Peter Metcalfe
+}

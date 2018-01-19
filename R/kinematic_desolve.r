@@ -1,40 +1,21 @@
 # downslope distribution function resulting from exponential transmissivity
-# assumption
-dqdt <- function(q, t, w, m, r, a)
-{
-#	dddt <- q- (t(w)%*%(a*q))/a-r
-#	dqdt <- dddt*-q/m
-	A <- diag(1/a) %*% t(w) %*% diag(a) -identity.matrix(nrow(w))
-  # throttle input
-  #q <- pmax(q, qmax)
-	res <- q/m * (A %*%q + r)
-    # impose
-	return(res)
-#	return(res)
-}
-
-dqdt.ode <- function(t, q, parms, qmax,
+# function relating rate of change of flow to unsaturated drainage r and upslope input and downslope output
+# called from ode 
+dqdt.ode <- function(t, y, parms, 
                       ...)
 {
- 	w <- parms$w
- #	m <- parms$m
- 	r <- parms$r
- 	a <- parms$groups$area
-    fun <- parms$dqds
-    S <- parms$S
- #   qmax <- parms$qmax
-
-	#	dddt <- q- (t(w)%*%(a*q))/a-r
-	#	dqdt <- dddt*-q/m
-	A <- diag(1/a) %*% t(w) %*% diag(a) -identity.matrix(nrow(w))
-
-	res <- -fun(q, S, params=parms$groups) * (A %*%q + r)
-
-  # impose maximum q and ensure non-negative
-  #res <- pmax(pmin(res, parms$groups$qbmax, na.rm=T),0)
+ # y <- pmin(y, parms$qbmax)
+  if(length(parms$idry)>0)
+  {
+  	y[parms$idry] <- 0	
+  }
+  
+	res <-  y/parms$m * (parms$A %*% y + parms$r)
+	
 	return(list(res))
-	#	return(res)
 }
+
+#cdqdt.ode <- cmpfun(dqdt.ode)
 
 require(deSolve)
 
@@ -44,7 +25,7 @@ require(deSolve)
 # time steps
 # ==============================================================================
 # Inputs
-# ------------------------------------------------------------------------------
+# ------------------------------------------------------------------------------h
 # time step dt in hrs
 # flowst1: group flows and storages at previous time step
 # flows: groups flows at current time step- Qbf to be determined
@@ -74,58 +55,47 @@ route.kinematic.euler <- function(groups,
 							              w,
                             nstep=1,
 				                    dqds,
-              method="lsoda"              # Livermore solver
+														A=NULL,
+                            method="lsoda"              # Livermore solver
 )
 {
-
   # UZ: recharge is drainage from unsaturated into saturated zone - assumed constant over time steps
   r <- flows$uz #
 
  	qb0 <- flows$qbf
  	qb0[ichan] <- 0
- 	res <- ode(y=qb0, times=seq(0, dtt, length.out=nstep+1),
-                func=dqdt.ode,
-                method=method,
-                parms=list(w=w, r=r,
-                           groups=groups,
-#                            a=groups$area,
-#                            m=groups$m,
-#                            z.drain=groups$z.drain,
-#                            ln_t0_plus=groups$
-                           dqds=dqds,
-                           S=stores$sd))
-  # final row gives baseflows at each stage
- 	qbf <- res[nstep+1,-1]
+ 	
+ 	
+ 	#	dddt <- q- (t(w)%*%(a*q))/a-r
+ 	#	dqdt <- dddt*-q/m
+ 	if(is.null(A))
+ 	{
+ 		a <-groups$area
+ 		#  fun <- parms$dqds
+ 		
+ 		N <- nrow(w)
+ 		
+ 		 A <- diag(1/a, N, N) %*% t(w) %*% diag(a, N, N) - identity.matrix(N)
+ 	}
+ 	
+ 	# identify any units that have dried out andare not producing any base flow
+ 	idry <- which(stores$sd>=groups$sd_max)
+ 	
+ 	# nstep is the number of results to produce
+ 	res <- ode(y=qb0, 
+ 						 times=seq(0, dtt, length.out=nstep+1),
+             func=dqdt.ode,
+ 						 parms=list(A=A,
+ 						 						idry=idry,
+ 						 					  m=groups$m,
+ 						 						qbmax=groups$qbf_max,
+ 						 						r=r),
+ 						 method=method)
+ 	
+  # final row gives baseflows at the end stage
+ 	flows$qbf <- res[nstep+1,-1]
 
-  res <- matrix(res[-1,-1], nrow=nstep)
-  # excess base flow
-  ex <- t(apply(res, MARGIN=1, function(x)ifelse(x>groups$qbf_max,
-                                                    x-groups$qbf_max, 0)))
-  # remove and add to saturation excess
-  res <- res-ex
-
-  # specific storage (defict) change over this step, assumming the drainage constant
-#  sd.add <- -t(apply(res[,-1], MARGIN=1,
-#                     function(x)((x*groups$area)%*%w-x*groups$area)/groups$area-r)*dtt/nstep)
-
-#  sd.add <- t(apply(res, MARGIN=1,
-#                   function(x)x-r-flows$qin/groups$area)*dtt/nstep)
-
-  flows$ex <- colMeans(ex)
-
- # limit output to storage available (although more available from upslope)
-#  qbf <- pmin(qbf, stores$sd-groups)
-  # max saturated flux is calculated from topography of groups, setting SD=0
-  # if we exceed this then set the flux to that value
-# throttle outlet discharge to max given gradient and conductivity and ensure >0
- flows$qbf <- qbf
-# stores$sd <- stores$sd + colSums(sd.add)
-#stores$ex <- stores$ex +colSums(ex*dtt/nstep)
-#    flows$ex <- pmax(qbf-groups$qbmax, 0, na.rm=T)
-#    flows$qbf <- pmax(qbf-flows$ex,0)
-  #  flows$qbf[ichan] <- 0
-# updated base flow. storage calculated in update.storages
-  return(list("flows"=flows, "stores"=stores))
+  return(flows)
 }
 
 

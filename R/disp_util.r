@@ -1,3 +1,26 @@
+#' Reset device parameters
+#'
+#' @description Reset some display parameters of the active device, or make one active while setting its parameters
+#' @param dev numeric Device ID. Defaults to currently active device. If another valid device this will be activated. If not an existing device a new device will be opened.
+#' @param ... Named list with any other valid graphics parameters to apply
+#'
+#' @return Updated parameters of the active device
+#' @seealso par
+dev.reset <- function(dev=dev.cur(), ...)
+{
+	dev.set(dev)
+	layout(matrix(1))
+	par(mar=c(4.1,4.1,4.1,2.1))
+	par("las"=1)
+	par(mgp=c(2,1,0))
+	par(family="serif")
+	par(list(...))
+	par("cex.axis"=1)
+	par("cex.lab"=1)
+	par("cex"=1)
+	return(par())
+}
+
 # active the dev.num(th) device of the required type. if dev.id is supplied, attempt to
 # activate the window with that id
 activate.device <- function(dev.num,
@@ -47,7 +70,7 @@ activate.device <- function(dev.num,
     }
 
     idev <- dev.num
-    try(res <- dev.set(devs[idev]),silent=T)
+    try(res <- dev.set(devs[idev]),silent=TRUE)
   }
   return(dev.cur())
 }
@@ -71,7 +94,7 @@ open.devices <- function(n=1, title="", width=8, height=8,
   while(i<n.new)
   {
     # open required number of devices of  type
-    try(dev.new(title=title, width=width,height=height), silent=F)
+    try(dev.new(title=title, width=width,height=height), silent=FALSE)
     i <- i+1
   }
   id <- NULL

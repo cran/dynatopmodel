@@ -7,7 +7,7 @@
 	# eMax: evapotranspiration (mm/day) at summer maximum
 # based on Beven's 1995 Fortran code
 #**********************************************************
-#load.source("util.r", chdir=T)
+#load.source("util.r", chdir=TRUE)
 require(xts)
 
 ###########################################################
@@ -49,15 +49,15 @@ pEvap <- function(dt=1, dStart=1, numDays=365, eMin=0, eMax=0)
     fract[fract<0] <- 0
 
     # If:
-    # T = day total ET
+    # TRUE = day total ET
     # l = day length
     # h = hours since dawn
     # f = proportion of day passed since dawn
     # then we have
-    # e(h) = 0.5*pi*T/l . sin(pi*h/l) or
-    # e(f) = 0.5*pi*T/l . sin(pi*f)
+    # e(h) = 0.5*pi*TRUE/l . sin(pi*h/l) or
+    # e(f) = 0.5*pi*TRUE/l . sin(pi*f)
     # total e.t. from dawn to each sample time is
-    # 0.5*T*(1-cos(pi*f))
+    # 0.5*TRUE*(1-cos(pi*f))
     cE <- -cos(pi*fract)  # omit factor
     # same array shifted right by 1 and cos(0) inserted
     cE2 <- c(-1,cE[1:length(cE)-1])
@@ -90,10 +90,10 @@ pe.est <- function(t, pmax=5, t.start=6, t.end=20)
 #'
 #' @details Dynamic TOPMODEL requires a time series of potential
 #'   evapotranspiration in order to calculate and remove actual
-#'   evapotranpiration from the root zone during a run. Many sophisticated
+#'   evapotranspiration from the root zone during a run. Many sophisticated
 #'   physical models have been developed for estimating PE and AE, including the
 #'   Priestly-Taylor (Priestley and Taylor, 1972) and Penman-Monteith (Montieth,
-#'   1965) methods. These, however, require detailed meterological data such as
+#'   1965) methods. These, however, require detailed meteorological data such as
 #'   radiation input and relative humidities that are, in general, difficult to
 #'   obtain. Calder (1983) demonstrated that a simple approximation using a
 #'   sinusoidal variation in potential evapotranspiration to be a good
@@ -112,7 +112,7 @@ pe.est <- function(t, pmax=5, t.start=6, t.end=20)
 #' @param emin Minimum daily PE total (m or mm)
 #' @param emax Maximum daily PE total (m or mm)
 #' @param start Start time of returned series in a format that can be coerced into a POSIXct instance. Defaults to start of rainfall data
-#' @param end End time for returned series in a format that can be coerced into a POSIXct instance. Defaults to end of rainfall datA
+#' @param end End time for returned series in a format that can be coerced into a POSIXct instance. Defaults to end of rainfall data.
 #' @return Time series (xts) of potential evapotranspiration ([L]/[T]) covering the given time range and at the desired interval in m or mm/hr
 #' @references Beven, K. J. (2012). Rainfall-runoff modelling : the primer. Chichester, UK, Wiley-Blackwell.
 #' @references Calder, I. R. (1986). A stochastic model of rainfall interception. Journal of Hydrology, 89(1), 65-71.
@@ -149,7 +149,7 @@ approx.pe.ts <- function(start, end,
   d.start <- lubridate::yday(start)
   d.end <- lubridate::yday(end)
 
-  n.days <- as.double(difftime(end, start, units="days"))
+  n.days <- as.double(difftime(end, start, units="days"))+1
   if(n.days<=0){ stop("Invalid time period specified: start is after end") }
 
   # use the non xts version
@@ -160,10 +160,13 @@ approx.pe.ts <- function(start, end,
 
   # step is in hours = 3600s
   times <- seq(from=start, length.out=length(vals), by=dt*3600)
-  len <- min(length(vals), length(times))
 
-  times <- times[1:len]
+  vals.ser <- xts(vals, order.by = times)
 
-  res <- xts(vals[1:len], order.by=times)
+  # restrict to actual bounds
+  sel <- paste0(start, "::", end)
+
+  res <- vals.ser[sel]
+
   return(res)
 }

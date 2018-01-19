@@ -76,6 +76,19 @@ subset.xts <- function(ser, start=NULL, end=NULL)
   return(ser[sel])
 }
 
+# final value(s) of a time series
+last_row <- function(ts)
+{
+	if(is.xts(ts) | is.matrix(ts))
+	{
+		return(ts[nrow(ts),])
+	}
+	else
+	{
+		return(ts[length(ts)])
+	}
+}
+
 
 # split supplied series into another with higher resolution dt or supply factor
 # optionally supply time range to subset input series
@@ -92,7 +105,7 @@ disaggregate_xts <- function(ser,
   if(is.null(fact)& is.null(dt)){stop("Supply either aggregation factor or new time interval")}
   ser <- subset_zoo(ser, ser.start, ser.end)
   tms <- as.double(index(ser))
-  dt.ser <- round(mean(diff(tms)/3600,na.rm=T),2)
+  dt.ser <- round(mean(diff(tms)/3600,na.rm=TRUE),2)
 
   # frequency of the input series to the
   if(is.null(fact))
@@ -118,7 +131,8 @@ disaggregate_xts <- function(ser,
       # new values duplicate series and rescale if not a rate in terms of a fixed
       # period e.g m/hr
       vals <- apply(as.matrix(ser), MARGIN=2, FUN=rep, each=fact)   # won't wotk if fact is not an integer
-      vals <-matrix(coredata(vals), ncol=ncol(ser))
+      vals <- matrix(vals, ncol=ncol(vals))
+    #  vals <-matrix(coredata(vals), ncol=ncol(ser))
 
       tms <- seq(ser.start, along.with=vals, by=dt*3600)
       # if the value is a rate then it should be applied to all of the values in
@@ -138,9 +152,25 @@ disaggregate_xts <- function(ser,
 }
 
 # aggregate given series to a lower time resolution
+#' Resample observation data at a new time interval
+#'
+#' @description Takes a list of time series and resample to a new interval.
+#' @details Time series of observation data are often of different temporal resolutions, however the input to most hydrological models, as is the case with the Dynamic TOPMODEL, requires those data at the same interval. This provides a method to resample a collection of such data to a single interval.
+#' @export aggregate_xts
+#' @param ser xts Times series to aggregate
+#' @param dt numeric New time interval, hours
+#' @param fun function  Function applied to aggregate the series to the new interval
+#' @return Time series resampled at the new interval
+#' #' @return The list of observations resampled at the new interval.
+#' @examples
+#' # Resample Brompton rainfall and PE data to 15 minute intervals
+#' require(dynatopmodel)
+#' data("brompton")
+#'
+#' rain <- aggregate_xts(brompton$rain, dt=15/60)
 aggregate_xts <- function(ser,
                           dt,
-                          fun=mean)  # use SUM if values are
+                          fun=mean)
 {
   if(is.null(ser)){return(ser)}
   if(!is.zoo(ser)){stop("Time series input required")}
@@ -164,7 +194,7 @@ aggregate_xts <- function(ser,
       index.agg <- rep(tms, each=n.aggr)  # index(proj$rain)
       # trim - why needed ?
       index.agg <- index.agg[1:nrow(ser)]
-      # aggregate using mean by default
+      # aggregate, using mean by default
       ser.agg <- aggregate(zoo(ser), by = index.agg, FUN=fun)
       names(ser.agg)<-names(ser)
       return(ser.agg)
@@ -176,4 +206,105 @@ aggregate_xts <- function(ser,
     }
   }
   return(ser)
+}
+
+time_series_interval <- function(ser, all=FALSE)
+{
+  ints <- diff(index(ser))
+  vals <- unique(as.numeric(ints), na.rm=TRUE)
+  if(length(vals)>0 & !all)
+  {
+    warning("Non-unique times series intervals, returning modal value")
+    return(modal(vals, na.rm=TRUE))
+  }
+  return(vals)
+}
+
+# locate the interval in the time series in which the given tim elies and returns its start or index
+find_time_interval <- function(tm, ser, as.index=FALSE, warn=TRUE)
+{
+	if(is.zoo(ser))
+	{
+		# use the intervals indexing the time series
+		tms <- index(ser)
+	}else
+	{
+		tms <- ser
+	}
+	itm <- findInterval(tm, tms)
+
+	if(!is.finite(itm))
+	{
+		if(warn)
+		{
+			warning("Specified time not within extent of time series")
+			return(NA)
+		}
+	}
+	else
+	{
+		if(as.index)
+		{
+			return(itm)
+		}
+		else{
+			return(ser[itm])
+		}
+	}
+}
+
+
+findpeaks <- function(vec,bw=1,x.coo=c(1:length(vec)))
+{
+  pos.x.max <- NULL
+  pos.y.max <- NULL
+  pos.x.min <- NULL
+  pos.y.min <- NULL
+  for(i in 1:(length(vec)-1))
+  {
+    if((i+1+bw)>length(vec)){
+    sup.stop <- length(vec)}else{sup.stop <- i+1+bw
+    }
+    if((i-bw)<1){inf.stop <- 1}else{inf.stop <- i-bw}
+    subset.sup <- vec[(i+1):sup.stop]
+    subset.inf <- vec[inf.stop:(i-1)]
+
+    is.max   <- sum(subset.inf > vec[i]) == 0
+    is.nomin <- sum(subset.sup > vec[i]) == 0
+
+    no.max   <- sum(subset.inf > vec[i]) == length(subset.inf)
+    no.nomin <- sum(subset.sup > vec[i]) == length(subset.sup)
+
+    if(is.max & is.nomin){
+      pos.x.max <- c(pos.x.max,x.coo[i])
+      pos.y.max <- c(pos.y.max,vec[i])
+    }
+    if(no.max & no.nomin){
+      pos.x.min <- c(pos.x.min,x.coo[i])
+      pos.y.min <- c(pos.y.min,vec[i])
+    }
+  }
+  return(list(pos.x.max,pos.y.max,pos.x.min,pos.y.min))
+}
+
+# plotting a list of time series on one plot
+
+plot_single <- function(..., col.fun=rainbow)
+{
+  ser <- list(...)
+  ser <- lapply(ser, function(x)
+    if(is(x, "zoo"))
+    {
+      return(x)
+    }
+  )
+
+  if(length(ser)==0){stop("Need at least one time series to plot")}
+
+  ser <- do.call(cbind, ser)
+
+  cols <- col.fun(ncol(ser))
+
+  plot.zoo(ser, plot.type = "single", col=cols)
+
 }

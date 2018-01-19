@@ -1,22 +1,149 @@
-# use the eigenvector approach to solving a system of linear first order ODEs
-dist.eigen <- function(groups, A, ex, vof, dt, ichan=1, eig=NULL, tm=NULL, max.t=NULL)
-{
-	# A is the scaled weighting matrix for this discretisation
-	ex.hru <- ex  # ex[-ichan]
-	if(any(ex.hru > 0, na.rm=T))
-	{
-        # total excess storage
-      #  ex.hru <- ex.hru
+# very simple discharge relationship 
+# lineraly relate the dischrage out of each area
+# to its current storage (assummed equivalent to water depth) and overland flow velocity
 
+dsdt.lin <- function(t, st, parms, ...)
+{
+  # loss of total storage per unit time (each unit)
+  Qout <-  parms$groups$vof*st*parms$groups$area
+  
+  # distribute input downslope with flux matrix 
+  # to get total upslope storage input per unit time 
+  Qin <- Qout %*% parms$W
+  
+  # net gain of specific storage
+  dsdt <- (Qin - Qout)/parms$groups$area
+
+  return(list(dsdt))
+  
+}
+
+# applying Manning equation - requires surface roughness and slope averaged over HRU
+dsdt.mann <- function(t, st, parms, ...)
+{
+  # loss of specific storage per uni time (each unit)
+  # Manning sheet flow, hydraulic radius R=A/P ~ h, water depth.
+  # S0 is surface slope
+  qout <-  with(parms$groups, st^1.667*sqrt(S0)/mann.n)
+  # gain of specific storage per unit time
+  qin <- ((qout*parms$groups$area) %*% parms$W)/parms$groups$area
+  
+  dsdt <- qin - qout
+  
+  return(list(dsdt))
+  
+}
+
+
+dsdt.over <- function(t, st, parms, Cw=1.7, ...)
+{
+  # weir coefficient for broadcrested weir
+  
+  # overflow routed as a Weir (specific discharge)
+  qout <- Cw*pmax(st, 0)^1.5
+  
+  # which way is the overflow going?
+  qin <- ((qout*parms$groups$area) %*% parms$W)/parms$groups$area
+  
+  dsdt <- qin-qout
+  return(list(dsdt))
+
+}
+
+
+# ****************** current approach to surface routing **********************
+# routing of surface excess  using a system of ODEs constructed with flux routing matrix
+distribute_surface_excess_storage <- function(groups, 
+                           W, # this is surface flow routing matrix
+                           Wover=W,
+                           ex, 
+                           dt, 
+                           fun=dsdt.lin,
+                           ichan=1)
+{
+  # anything that can't be accommodated in a feature, for n
+  ex.over <- pmax(ex[]-groups$ex_max, 0, na.rm=TRUE)
+  
+  # remove the excess, redistribute, then add back into the result
+  ex <- ex - ex.over
+      
+  # W the surface flow distribution matrix for this discretisation
+  ex.dtt <- ode(y=ex,
+                times=c(0, dt), func=fun, 
+                parms=list(W=W, groups=groups))
+  
+  ex <- ex.dtt[2,-1]
+  
+  # send overflow out of the area according to the overflow matrix,
+  # by default equal to the surface weighting matrix
+  if(any(ex.over[-ichan]>0))
+  {
+    ex.over <- ode(y=ex.over,
+                  times=c(0, dt), func=dsdt.over, 
+                  parms=list(W=Wover, groups=groups))
+    
+    ex.over <- ex.over[2,-1]
+    
+#    ex[ichan] <- ex[ichan]+ sum(ex.over*groups$area)/groups$area[ichan]
+    ex <- ex + ex.over
+  }
+  
+  # prevent tiny amounts of surface storage  causing this routine to be called
+  # repeatedly
+  ex.tot <- round(ex*groups$area, 1)
+  ex <- ex.tot/groups$area
+  return(ex)
+}
+#*******************************************************************************
+
+simple_ovf_routing <- function(groups, ex, W, dt, ichan=1)
+{
+#  ex.hru <- round(ex, )  # ex[-ichan]
+  if(any(ex > 0, na.rm=TRUE))
+  {
+    # total 
+    Ex <- ex*groups$area
+
+    # total flux out of each group
+    Qout <- groups$vof*Ex
+    
+    # distributed to downslope groups
+    Qin <- Qout %*% W 
+    
+    # change in storage over time step
+    Ex <- pmax(Ex + (Qin - Qout)*dt, 0)
+    
+    ex <- as.vector(Ex/groups$area)
+  }
+  return(ex)
+    
+}
+
+# use the eigenvector approach to solving a system of linear first order ODEs
+dist.eigen <- function(groups, A, ex, dt, ichan=1, eig=NULL, tm=NULL, max.t=NULL, fun=dsdt.lin)
+{
+
+	if(any(ex > 1e-6, na.rm=TRUE))
+	{
+		ex.hru <- ex #* groups$area
+		
 		# vof a vector of overflow flow
+		vof <- groups$vof
+		
+		# ensure no storage routed out of channel
+		vof[ichan] <- 0
+		
 		# relate storage to discharge by q = vs
 		# then s' = t(q) %*% w-q = v*(t(w)%*% s-s)
 	#	ex.hru[ichan]<- 0
 #		eig <- get_routing_eig(A, vof)
+		
+		# A is the scaled weighting matrix for this discretisation
 		ex.dtt <- ode(y=ex.hru,
-                      times=c(0, dt), func=dsdt, parms=list(A=A, vof=vof))
+                  times=c(0, dt), func=fun, 
+		              parms=list(A=A, vof=vof))
+		
 		ex.hru <- ex.dtt[2,-1]  # exclude first column with times and take result at time dt, in final row
-
 
 #		Av <- vof * (A - identity.matrix(length(vof)))
 #		eig <- eigen(Av)
@@ -56,99 +183,27 @@ dist.eigen <- function(groups, A, ex, vof, dt, ichan=1, eig=NULL, tm=NULL, max.t
 #		ex[-ichan] <- ex.hru
 # specific storages
   #  ex.hru<- 0
-		ex <- ex.hru/groups$area
-
-
+	  ex <- ex.hru
 	}
 
 	# convert storage back to equivalent flow on return
 	return(ex)
 }
 
-dsdt <- function(t, st, parms, ...)
-{
-	A <- parms$A
-	vof <- parms$vof
-    # convert to a discharge
-	Av <- vof * (A - identity.matrix(length(vof)))
-  dsdt <- vof*st %*% t(A)-vof*st
-  # Av %*% s
-	return(list(dsdt))
-
-}
-
-
-
-# show_ovf <- function(groups, tm, max.t, lambda, u, ci)
+# dsdt <- function(t, st, parms, ...)
 # {
-# 	tms <- seq(0, max.t, length.out=6)
-#
-# 	qovf <- t(sapply(tms,
-# 									 function(dt)
-# 									 {
-# 									 	cdt <-  ci * exp(lambda*dt)
-# 									 	ex.hru <- u %*% cdt
-# 									 }
-# 	))
-#
-# 	s.ovf <- t(apply(round(qovf, 3), MARGIN=1, function(x)x/groups$area))
-#
-#
-# 	s.ovf <- cbind(s.ovf, rowSums(qovf)/sum(groups$area))
-# 	groups$id <- paste0("HRU", groups$id)
-# 	groups[1,"id"]<- "Reach 1"
-# 	colnames(s.ovf)<- c(groups$id, "Overall")
-#
-# 	n.breaks <- 50
-# 	cols <- colorRampPalette(c("white", "blue"))(n.breaks)
-# 	cols.hru <- cut(s.ovf, breaks=n.breaks, labels=F)
-#
-# 	its <- xts(order.by=tm+tms*3600, matrix(cols.hru, nrow=length(tms)))
-# 	ts.ex <- xts(round(s.ovf*1000, 2), order.by=index(its))
-#
-# 	hru <- disc$hru #  drn*100+
-# 	drn <- gBuffer(gwy$drn, w=3)
-#
-# 	write.zoo(ts.ex, "e:/junk/dtm/ovf.tsv", sep="\t", quote=F)
-#
-#
-# 	bvals <-seq(min(s.ovf), max(s.ovf), length.out=n.breaks)
-# #	cols[unique(its)]
-#
-# 	bvals <- round(1000*bvals[unique(its)], 2)
-# #	hru[hru>200]<-1
-# 	hru <- subs(hru, data.frame(unique(hru), 1:length(unique(hru))))
-# 	sel <- extent(281400, 282000, 285650, 286082)
-#
-# browser()
-#
-# fn <- "e:/junk/dtm/ovf.jpg"
-# #	jpeg(fn)
-# #on.exit(dev.off())
-#
-# 	par(family="serif")
-# 	layout(matrix(c(1:6, 7, 7), ncol=2, byrow=T), heights=c(0.5,0.5,0.5,0.1))
-#
-# par(mar=c(2,2.5,3,0))
-# 	for(i in 1:length(tms))
-# 	{
-#
-#
-# 		sp::plot(hru, col=cols[its[i,-1]], ext=sel, legend=F, main=index(its)[i], cex.main=0.75)
-# 		sp::plot(drn, col=cols[its[i,1]], add=T, border=NA)
-# 		raster::contour(gwy$dem, add=T, col=make.transparent("brown"), nlevels=20)
-#
-#
-# 	#	readline("")
-#
-# 	}
-
-# plot.new()
-#
-# 	legend(x="bottomleft", fill=cols[sort(unique(its))], legend=sort(bvals), horiz=T)
-#
-# 	dev.off()
+# 	A <- parms$A
+# 	vof <- parms$vof
+#     # convert to a discharge
+# 	Av <- vof * (A - identity.matrix(length(vof)))
+#   dsdt <- vof*st %*% t(A)-vof*st
+#   # Av %*% s
+# 	return(list(dsdt))
+# 
 # }
+
+
+
 
 # method of solution by eigen values and vectors
 get_routing_eig <- function(A, vof, ichan=1)
@@ -158,7 +213,7 @@ get_routing_eig <- function(A, vof, ichan=1)
 	nhru <- nrow(A)
 
 	#	vof[ichan] <- 0 #vof[-ichan]
-	vof.mat <- matrix(rep(vof, nhru), nrow=nhru, byrow=T)
+	vof.mat <- matrix(rep(vof, nhru), nrow=nhru, byrow=TRUE)
 	Av <- A - diag(vof)
 
 	eig <- eigen(Av)

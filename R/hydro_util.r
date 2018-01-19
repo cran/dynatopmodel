@@ -1,3 +1,5 @@
+require(xts)
+
 #' Time of maximum observation
 #'
 #' @description Determine the time of the maximum item in the supplied time series.
@@ -17,17 +19,26 @@
 time_at_peak <- function(ts, icol=1)
 {
   tms <- index(ts)
-  imax <- which.max(ts[,icol])
+  imax <- which.max(ts)
   return(tms[imax])
+
+  # ttp <- apply(ts, MARGIN=2,
+  #   function(x)
+  #   {
+  #     imax <- which.max(x)
+  #     return(tms[imax])
+  #   })
+  #
+  # return(unlist(ttp))
 }
 
 #' Time between the peak rainfall and the peak discharge
 #'
-#' @description Return the lag, in hours, between the peak in the rainfall record and that of the discharge response.
+#' @description Return the lag, in hours, between the peak in the rainfall record and that of the discharge
 #' @export time_to_peak
 #' @param rain Time series of rainfall.
 #' @param qsim Time series of discharges.
-#' @param units Units in which to return the value.
+#' @param units Units in which to return the value
 #' @author Peter Metcalfe
 #' @seealso time_at_peak
 #' @examples
@@ -51,10 +62,10 @@ time_to_peak <- function(rain, qsim, units="hour")
 #' Nash Sutcliffe Efficiency of a model's output against observations
 #'
 #' @description Returns the the NSE (NSE, Nash and Sutcliffe, 1970) of the simulated values against the given observations.
-#' @param qsim Time series or vector of simulated values.
-#' @param qobs Time series or vector of observations.
-#' @param digits No. DP in returned value.
-#' @return A number <= 1 indicating the goodness of fit of the simulated series against observations (1= perfect fit). Values of >0.8 are generally regardred as "behavioural".
+#' @param qsim Time series or vector of simulated values
+#' @param qobs Time series or vector of observations
+#' @param digits No. decimal places in returned value
+#' @return A number <= 1 indicating the goodness of fit of the simulated series against observations (1= perfect fit). Values of >0.8 are generally regarded as "behavioural"
 #' @author Peter Metcalfe
 #' @import zoo
 #' @export NSE
@@ -71,30 +82,30 @@ time_to_peak <- function(rain, qsim, units="hour")
 #' }
 NSE <- function(qsim, qobs, digits=2)
 {
-  qobs <- qobs[index(qsim)]
+  #qobs <- qobs[index(qsim)]
 
   qobs <- as.vector(qobs)
 	qsim <- as.vector(qsim)
 
 	# shrink to the smallest array
-#	len <- min(length(qobs), length(qsim))
+	len <- min(length(qobs), length(qsim))
+	qobs <- qobs[1:len]
+	qsim <- qsim[1:len]
 
-
+	igood <- which(!is.na(qobs))
 	# test only against non-null observations
-	qsim <- qsim[!is.na(qobs)]
+	qsim <- qsim[igood]
 	qobs <- qobs[!is.na(qobs)]
-	qobs <- qobs[!is.na(qsim)]
-	qsim <- qsim[!is.na(qsim)]
 
 	if (length(qobs) == 0 || length(qsim) == 0)
 	{
 	  stop("No non-null observations found")
 	}
 
-	NSE <- 1 - (sum((qobs - qsim)^2)/sum((qobs - mean(qobs))^2))
+	res <- 1 - (sum((qobs - qsim)^2)/sum((qobs - mean(qobs))^2))
 
-	NSE <- round(NSE, digits)
-	return(NSE)
+	res <- round(res, digits)
+	return(res)
 }
 
 # return a list of efficiency measures for the given run against
@@ -161,7 +172,7 @@ MinFlowLengthsToTarget <- function (dem,targ)
     setTxtProgressBar(pb, rw)
     # flow lengths to this cell (NA if none)
     lens<-flowlength(mat, rowcols[rw,])
-    lmin <- pmin(as.vector(lens), lmin, na.rm=T)
+    lmin <- pmin(as.vector(lens), lmin, na.rm=TRUE)
   }
 
   dim(lmin)<-dim(mat)
@@ -176,7 +187,7 @@ MinFlowLengthsToTarget <- function (dem,targ)
 
 
 # example call
-#targ<-extract(dem,wn,cellnumbers=T)[[1]][,1]
+#targ<-extract(dem,wn,cellnumbers=TRUE)[[1]][,1]
 # lens<-MinFlowLengthsToTarget(dem,targ)
 # cb<-lens>=0
 #
@@ -225,4 +236,55 @@ MinFlowLengthsToTarget <- function (dem,targ)
 #   gr<-gr-which(degree(gr)==1)
 #   return(gr)
 # }
+
+# saturation vapour pressure at temperature
+SatVP <- function(temp)
+{
+	return(exp((16.78*temp - 116.9)/(temp + 237.3)))
+}
+
+# calculates the relative humidity given the wet and dry bulb temperatures.
+# source: http://home.fuse.net/clymer/water/wet.html
+RelativeHumidity <- function(tdb, Twb, P=101.3)
+{
+	# 1. Default pressure is taken as 101.3 kPa (kiloPascals).
+
+	# 2. A conversion factor is calculated: A = 0.00066 (1.0 + 0.00115 Twb)
+	A <- 0.00066 * (1.0 + 0.00115* Twb)
+
+	# 3. The saturation vapor pressure is calculated at Twb: eswb = e[(16.78 Twb - 116.9)/(Twb + 237.3)]
+	eswb <- SatVP(Twb)
+
+	# 4. The water vapor pressure is calculated: ed = eswb - A P (tdb - Twb)
+	ed <- eswb - A*P*(tdb - Twb)
+
+	# 5. The saturation vapor pressure is calculated at tdb:
+	esdb <- SatVP(tdb)
+
+	#
+	# 6. The relative humidity is then calculated: RH = 100 ed/esdb
+	return(100*ed/esdb)
+
+	# The algorithm was from a U.S. Water Conservation Laboratory page which no longer exists.
+}
+
+
+# read AWS data from given file and use wet and dry bulb data it contains to
+# calculate the rel. humidty. Use row date-times to construct an extended time-series (xts) object
+ReadRHseries <- function(fn)
+{
+	dat <- read.table(fn, header=TRUE, sep="\t")
+
+	RH <- RelativeHumidity(dat$DRY_BULB_TEMP, dat$WET_BULB_TEMP)
+
+	tms <- as.POSIXct(dat$HOUR_ENDED, "GMT", format="%d-%B-%Y %H:%M:%S")
+	ser <- xts(RH, order.by=tms)
+	return(ser)
+}
+
+PlotRHSeries<-function(ser, ...)
+{
+	plot.xts(ser, ylab="Rel. humidity (%)", major.format="%b %Y", cex.axis=0.75, cex.main=0.75, cex.lab=0.75, ...)
+
+}
 

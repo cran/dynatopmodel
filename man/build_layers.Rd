@@ -9,7 +9,7 @@ build_layers(dem, fill.sinks = TRUE, deg = 0.1)
 \arguments{
 \item{dem}{Elevation raster using a projected coordinate system (e.g UTM) and regular grid spacing. Should have a resolution of a least 30m for the TWI to be meaningful.}
 
-\item{fill.sinks}{If TRUE (default) then run a sinkfill before calaculating the upslope area and TWI.}
+\item{fill.sinks}{If TRUE (default) then run a sinkfill before calculating the upslope area and TWI.}
 
 \item{deg}{Threshold intercell slope to determine sinks (degrees).}
 }
@@ -34,4 +34,3 @@ sp::plot(layers, main=c("Elevation AMSL (m)", "Upslope area (log(m^2/m))", "TWI 
 \author{
 Peter Metcalfe
 }
-

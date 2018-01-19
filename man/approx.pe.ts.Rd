@@ -9,7 +9,7 @@ approx.pe.ts(start, end, dt = 1, emin = 0, emax = 5/1000)
 \arguments{
 \item{start}{Start time of returned series in a format that can be coerced into a POSIXct instance. Defaults to start of rainfall data}
 
-\item{end}{End time for returned series in a format that can be coerced into a POSIXct instance. Defaults to end of rainfall datA}
+\item{end}{End time for returned series in a format that can be coerced into a POSIXct instance. Defaults to end of rainfall data.}
 
 \item{dt}{Time interval in hours}
 
@@ -26,10 +26,10 @@ Create sinsuiodal time series of potential evapotranspiration input
 \details{
 Dynamic TOPMODEL requires a time series of potential
   evapotranspiration in order to calculate and remove actual
-  evapotranpiration from the root zone during a run. Many sophisticated
+  evapotranspiration from the root zone during a run. Many sophisticated
   physical models have been developed for estimating PE and AE, including the
   Priestly-Taylor (Priestley and Taylor, 1972) and Penman-Monteith (Montieth,
-  1965) methods. These, however, require detailed meterological data such as
+  1965) methods. These, however, require detailed meteorological data such as
   radiation input and relative humidities that are, in general, difficult to
   obtain. Calder (1983) demonstrated that a simple approximation using a
   sinusoidal variation in potential evapotranspiration to be a good
@@ -68,4 +68,3 @@ Beven, K. J. (2012). Rainfall-runoff modelling : the primer. Chichester, UK, Wil
 
 Calder, I. R. (1986). A stochastic model of rainfall interception. Journal of Hydrology, 89(1), 65-71.
 }
-

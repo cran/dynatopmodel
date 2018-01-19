@@ -18,13 +18,14 @@ current.storage <- function(groups, stores, ichan=NULL)
   # storage remaining in root and unsaturated zones plus saturated storage in water table
   # subtracting the sd gives the effective overall storage across all zone. -ve values indicate deficit
 
-  return(weighted.average(stores$srz+stores$ex+stores$suz-stores$sd, groups$area))
+  return(weighted.mean(stores$srz+stores$ex+stores$suz-stores$sd, 
+  										 groups$area))
 }
 
 # net input at time step
 current.input <- function(groups, rain, ae, qr)
 {
-  return(as.numeric(rain - weighted.average(ae, groups$area) - qr))
+  return(as.numeric(rain - weighted.mean(ae, groups$area) - qr))
 }
 
 # check water balance from output of Dynamic TOPMODEL run
@@ -36,12 +37,12 @@ water.balance <- function(groups, stores, dt, storage.in, ichan,
   eff.rain <- apply(eff.rain[1:nrow(qsim),], MARGIN=1, function(x)sum(x*groups$area))/sum(groups$area)
 
   # rain distribution
-  #areas <- matrix(rep(groups$area, nrow(rain)), ncol=nrow(groups), byrow=T)
+  #areas <- matrix(rep(groups$area, nrow(rain)), ncol=nrow(groups), byrow=TRUE)
 #  tot.rain <- rowSums(()*areas)/sum(groups$area)
 #  tot.rain<-tot.rain[1:nrow(qsim)]
   # difference between net input and net storage gain
   storage.gain <- current.storage(groups, stores, ichan)-storage.in
-  wb <- dt*sum(eff.rain - qsim[,1], na.rm=T)-storage.gain
+  wb <- dt*sum(eff.rain - qsim[,1], na.rm=TRUE)-storage.gain
   return(wb)
 }
 

@@ -1,10 +1,5 @@
 # routines for creating flow allocation matrices, classification rasters and hsu group
 # summaries for the Dynamic TOPMODEL
-require(raster)
-#require(igraph)
-#require(topmodel)
-require(rgdal)
-
 # return a matrix of indexes of<- lls immediately downslope of the given cell in the first column
 # and correspoinding flow proportion allocated according to weighted midpoint slope in teh second
 DownslopeFlowAllocations <- function(rast, cur,
@@ -15,10 +10,10 @@ DownslopeFlowAllocations <- function(rast, cur,
   rast2 <- raster::setValues(rast, NA)
   rast2[cur]<-rast[cur]
   # ensure there are flow directons for all the elevation cells considered
-  rast <- fill.sinks(rast, deg=0.1, silent=F)
+  rast <- fill.sinks(rast, deg=0.1, silent=FALSE)
   # adjacent cells
   # cur <- cur[which(!is.na(rast[]))]
-  adj <- adjacent(rast,cur,directions=8, pairs=T)
+  adj <- adjacent(rast,cur,directions=8, pairs=TRUE)
   # select only directions with -ve (downslope) flow
   dz <- rast[adj[,2]] - rast[adj[,1]]
   good <- which(!is.na(dz) & dz <= thresh)
@@ -69,84 +64,26 @@ build.chan.dist.matrix <- function(dem,
                                    hru,       # raster of groupings
                                    chan.width=2)
 {
-    # build a raster identifying all reaches by ID
-    reaches <- build.reach.raster(dem, drn, chan.width=chan.width)
-    # use this determine how baseflow gets allocated between reaches
-    w.chan <- build.flow.dist.matrix(dem, cm=hru, reaches=reaches)
-    nreach <- nrow(drn)
-    # just the land to channel transitions
-    w.chan <- w.chan[-(1:nreach),-((nreach+1):ncol(w.chan))]
-    return(normalise.rows(w.chan))
+  # build a raster identifying all reaches by ID
+  reaches <- build.reach.raster(dem, drn, chan.width=chan.width)
+  # use this determine how baseflow gets allocated between reaches
+  w.chan <- build.flow.dist.matrix(dem, cm=hru, reaches=reaches)
+  nreach <- nrow(drn)
+  # just the land to channel transitions
+  w.chan <- w.chan[-(1:nreach),-((nreach+1):ncol(w.chan))]
+  return(normalise.rows(w.chan))
 }
 
-# create raster of channel locations
-build.reach.raster <- function(dem,
-         drn, nchan=nrow(drn),
-         copy.to.mem=T,
-         atb=NULL,
-         atb.thresh=0.8,  # if drn not supplied then use this as threshold contributing area
-         chan.width=5)
-{
-  # build the raster of river cells. Value gives the proportion of ech cell occupied by the channel
-  if(is.null(drn) & !is.null(atb))
-  {
-    a <- upslope.area(dem, fill.sinks=T)
-    message("Identifying channel(s) from TWI...")
-    a.thresh <- max(atb[], na.rm=T)*atb.thresh
-    # use the TWI to idenifty the channel as those areas exceeding the threshold
-    reaches<- atb > a.thresh
-    reaches[which(reaches[])] <- 1
-    reaches[which(reaches[]==0)] <-NA
-  }
-  else if(!is.null(drn))
-  {
-    if(copy.to.mem)
-    {
-      dem <- rast.mem.copy(dem)  # to prevent disk thrashing
-    }
-    reaches <- dem
-    reaches[] <- NA
-    # one row per channel
-    reach.cells <- lapply(extract(dem, drn, cellnumbers=T),
-                          function(r)
-                          {
-                            r[,1]
-                          })
-
-    ilen <- sapply(reach.cells, length)
-    # ensure each reach identified with at least cell, so apply in reverse order of length
-    for(i in order(sapply(reach.cells, length), decreasing=T))
-    {
-      reaches[reach.cells[[i]]] <- i
-    }
-  }
-  else
-  {
-    stop("Supply channels as shapefile or supply raster of TWI")
-  }
-
-  # calculate the cell proportions
-  prop <- min(chan.width/xres(dem), 1)
-  #	cellprops <- reaches*min(chan.width/xres(dem), 1)
-
-  # add a layer with proportions of cell occuppied by channel. estimated by
-  # proportion of cell size to channel width, probably close enough
-  reaches <- addLayer(reaches, reaches*prop)
-
-  names(reaches)=c("chan", "chanprops")
-
-  return(reaches)
-}
 
 do.build.flow.matrix <- function(dem, hru, drn, chan.width=4, fact=2)
 {
-	message("aggregating....")
-	dem <- aggregate(dem, fact)
-	hru <- aggregate(hru, fact, fun=modal)
-	message("getting reaches")
-	reaches <- build_chans(dem, drn, chan.width=chan.width)
-	message("building...")
-	w <- build.flow.dist.matrix(dem, hru, reaches=reaches)
+  message("aggregating....")
+  dem <- aggregate(dem, fact)
+  hru <- aggregate(hru, fact, fun=modal)
+  message("getting reaches")
+  reaches <- build_chans(dem, drn, chan.width=chan.width)
+  message("building...")
+  w <- build.flow.dist.matrix(dem, hru, reaches=reaches)
 }
 
 # Create a weighting matrix from a similar dem and raster of cell classifications
@@ -155,42 +92,42 @@ do.build.flow.matrix <- function(dem, hru, drn, chan.width=4, fact=2)
 #                   created for each reach and inserted before the landscape
 #                   HSUs. Landscape cells that contain part of the channel flow to that reach,whatever the local topography
 build.flow.dist.matrix <- function(dem, cm,  # landscape units
-                  drn=NULL,
-                  reaches=NULL,
-									ndp=3,
-                  reach.outputs=T,   # if true row and cols added for transitions out of channel units.otherwise only tarnsitions into channel units from land considered
-								  all=F)
+                                   drn=NULL,
+                                   reaches=NULL,
+                                   ndp=3,
+                                   reach.outputs=TRUE,   # if true row and cols added for transitions out of channel units.otherwise only tarnsitions into channel units from land considered
+                                   all=FALSE)
 {
   cm <- cm + 1000
-#  dem <- rast.mem.copy(dem)
-#  reaches <- rast.mem.copy(reaches)
-#  cm <- rast.mem.copy(cm)
-	# check	that rasters have same dims and resolution
-#	compareRaster(dem, cm, res = TRUE)
-	# note: these are the ids that indicate HSU classifications, which may contain
-	# information on how the hsu was discretised. The transition matrix
-	# assumes that they are in sequential order, which can be obtaied from the sort order
-	# as teh discretisation retains the structure of the groupings in the order
-	# save original ids
-	if(all)
-	{
-		# include every cell, including those outside catchment
-		hsuids <- 1:length(cm)
-		cellnos <- hsuids
-	}
-	else
-	{
-		# just non-NA
-		hsuids <- unique(cm[[1]], na.rm=T)  # 1:max(cm[], na.rm=T)}
-		cellnos <- which(!is.na(cm[]))
-	}
+  #  dem <- rast.mem.copy(dem)
+  #  reaches <- rast.mem.copy(reaches)
+  #  cm <- rast.mem.copy(cm)
+  # check	that rasters have same dims and resolution
+  #	compareRaster(dem, cm, res = TRUE)
+  # note: these are the ids that indicate HSU classifications, which may contain
+  # information on how the hsu was discretised. The transition matrix
+  # assumes that they are in sequential order, which can be obtaied from the sort order
+  # as teh discretisation retains the structure of the groupings in the order
+  # save original ids
+  if(all)
+  {
+    # include every cell, including those outside catchment
+    hsuids <- 1:length(cm)
+    cellnos <- hsuids
+  }
+  else
+  {
+    # just non-NA
+    hsuids <- unique(cm[[1]], na.rm=TRUE)  # 1:max(cm[], na.rm=TRUE)}
+    cellnos <- which(!is.na(cm[]))
+  }
   #back up unit names excluding the channels
   land.ids <- hsuids-1000
-	#reaches <- build.chans(dem, drn, reaches, chan.width=4)
-	reachids <- setValues(cm, 0)
+  #reaches <- build.chans(dem, drn, reaches, chan.width=4)
+  reachids <- setValues(cm, 0)
   cellprops <- setValues(cm, NA)
 
-	# add in channel cells if
+  # add in channel cells if
   if(!is.null(reaches)) # & !is.null(drn))
   {
     reachids <- reaches[[1]]
@@ -199,22 +136,22 @@ build.flow.dist.matrix <- function(dem, cm,  # landscape units
     # reorder so that reach ids are sequential
     rids <- unique(reaches[[1]])
 
- #   reachids <- subs(reaches[[1]],
-#                     data.frame(rids, order(rids)))
+    #   reachids <- subs(reaches[[1]],
+    #                     data.frame(rids, order(rids)))
     # insert a hsu for every reach without duplicates. add prefix to prevent duplication
     # with land units
 
     hsuids <-  c(1:max(rids), hsuids)
   }
 
-	# reclass raster so sequential ids are used
-	cm <- raster::subs(cm, data.frame(hsuids, order(hsuids)))
+  # reclass raster so sequential ids are used
+  cm <- raster::subs(cm, data.frame(hsuids, order(hsuids)))
 
-	cat("Getting downslope flow weights...\n")
+  cat("Getting downslope flow weights...\n")
   start.tm <- Sys.time()
   down.all <- DownslopeFlowAllocations(dem, cellnos)
-	cat(nrow(down.all), "directions processed in ", format(difftime(Sys.time(), start.tm), digits=2), "\n")
- # down.all <- down.all[which(!is.na(down.all[,2])),]
+  cat(nrow(down.all), "directions processed in ", format(difftime(Sys.time(), start.tm), digits=2), "\n")
+  # down.all <- down.all[which(!is.na(down.all[,2])),]
 
   if(length(down.all)==0)
   {
@@ -223,17 +160,17 @@ build.flow.dist.matrix <- function(dem, cm,  # landscape units
   }
   from <- down.all[,1]
   to <- down.all[,2]
-	down.all <- cbind(down.all, cm[from], cm[to])
+  down.all <- cbind(down.all, cm[from], cm[to])
 
   # add in river transitions
-	reach.cells <- which(reachids[]>0)
+  reach.cells <- which(reachids[]>0)
   ireach <- which(down.all[,2] %in% reach.cells)
   rtrans <- down.all[ireach, ]
   # proportion of flow from these cells into channel (rather than identified HSU transition)
   props <- cellprops[rtrans[,2]]
   # build extra rows two for each cell- river cell transition
   # split flow according to proportion of cell occupied by channel
-	riv.props <- props*rtrans[,3]   # third col is proportion
+  riv.props <- props*rtrans[,3]   # third col is proportion
   land.props <- (1-props)*rtrans[,3]
   # replace with updated land transitions and append river transitions
   down.all[ireach,3] <- land.props
@@ -242,11 +179,11 @@ build.flow.dist.matrix <- function(dem, cm,  # landscape units
   new.rows <- cbind(down.all[ireach, 1:2], riv.props, down.all[ireach,4], reachids[rtrans[,2]])
   down.all <- rbind(down.all, new.rows)
   # HSU and channel transistion table: from hsu, to hsu (or channel), flow proportion
-#  trans <- data.frame(as.factor(down.all[,4]), as.factor(down.all[,5]), down.all[,3])
+  #  trans <- data.frame(as.factor(down.all[,4]), as.factor(down.all[,5]), down.all[,3])
 
   trans <- data.frame(down.all[,4], down.all[,5], down.all[,3])
- trans[,1]  <- as.factor(hsuids[trans[,1]])
- trans[,2]  <- as.factor(hsuids[trans[,2]])
+  trans[,1]  <- as.factor(hsuids[trans[,1]])
+  trans[,2]  <- as.factor(hsuids[trans[,2]])
   names(trans)<-c("from", "to", "prop")
   trans <- trans[which(!is.na(trans[,2])),]
 
@@ -280,34 +217,34 @@ build.flow.dist.matrix <- function(dem, cm,  # landscape units
     # transitions into nowhere!
 
     warning(paste0("Nil row sum in flow matrix", paste0(names(w)[zero.rows], collapse=", ")))
-   # w <- w[-zero.rows,]
+    # w <- w[-zero.rows,]
 
   }
-# w <- signif(w, ndp)
-	# round to sensible no. dp and renormalise to rows add to 1
+  # w <- signif(w, ndp)
+  # round to sensible no. dp and renormalise to rows add to 1
 
-#
+  #
 
- 	if(!is.null(reaches))
- 	{
- 	  nreach <- max(rids)  #might actually be fewer
-     if(reach.outputs)
-     {
+  if(!is.null(reaches))
+  {
+    nreach <- max(rids)  #might actually be fewer
+    if(reach.outputs)
+    {
       # insert an identity matrix for channel transistions
       # and route all channel flow via a time delay procedure and /or construct
       # inter channel flow transition matrix to route flows down channel
-       rw <- matrix(0, ncol=ncol(w), nrow=nreach)
-       rw[1:nreach, 1:nreach] <- identity.matrix(nreach)
-       w<-rbind(rw, w)
+      rw <- matrix(0, ncol=ncol(w), nrow=nreach)
+      rw[1:nreach, 1:nreach] <- identity.matrix(nreach)
+      w<-rbind(rw, w)
 
-       rownames(w)<- colnames(w)
-     }
-     else
-     {
-       # only the land to river transitions
-       w <- w[,1:nreach]
-     }
-	}
+      rownames(w)<- colnames(w)
+    }
+    else
+    {
+      # only the land to river transitions
+      w <- w[,1:nreach]
+    }
+  }
   else
   {
     rownames(w) <- land.ids
@@ -316,7 +253,7 @@ build.flow.dist.matrix <- function(dem, cm,  # landscape units
 
   w <- normalise.rows(w)
 
-	return(w)
+  return(w)
 }
 
 
@@ -335,13 +272,13 @@ insert.col <- function(mat, i, val=NA, nm=NULL)
 
 normalise <- function(x)
 {
-	if(is.vector(x))
-	{
-		tot <- sum(abs(x), na.rm=T)
+  if(is.vector(x))
+  {
+    tot <- sum(abs(x), na.rm=TRUE)
 
-		return(ifelse(tot==0,x,x/tot))
-	}
-	return(x)
+    return(ifelse(tot==0,x,x/tot))
+  }
+  return(x)
 }
 
 
@@ -368,7 +305,7 @@ get.upslope.paths <- function(pths, ipths=NULL)
 {
   if(length(ipths)==0)
   {
-   # cat("finished")
+    # cat("finished")
     return(NULL)
   }
   res <- ipths
@@ -384,33 +321,33 @@ get.upslope.paths <- function(pths, ipths=NULL)
 # straight line distance. could scale up to get a nearer estimate
 simple.dist.to.outlet <- function(dem, outlet, scale.fact=1.5)
 {
-	if(!is.null(outlet))
-	{
-			dists <- distanceFromPoints(dem, xyFromCell(dem, outlet))+ dem-dem
-			return(dists*scale.fact)
-	}
+  if(!is.null(outlet))
+  {
+    dists <- distanceFromPoints(dem, xyFromCell(dem, outlet))+ dem-dem
+    return(dists*scale.fact)
+  }
 }
 
 # determine cell in region of cell, if supplied, or lowest cell in DEM if not, that has
 # the most upslope connectivity
 locate.outlet <- function(dem, cell=NULL)
 {
-	bound <- raster::boundaries(dem)
-	bound[bound==0] <- NA
-	# only cells on edge
+  bound <- raster::boundaries(dem)
+  bound[bound==0] <- NA
+  # only cells on edge
   outlet <- which.min((dem*bound)[])
 
- 	return(outlet)
+  return(outlet)
 
-  adj <- adjacent(dem,cell,directions=8,pairs=F, include=T)
+  adj <- adjacent(dem,cell,directions=8,pairs=FALSE, include=TRUE)
 
   ndest <- sapply(adj,
-        function(x)
-        {
-          adj <- adjacent(dem,x,directions=8,pairs=F)
-          upslope <- adj[which(dem[adj]>dem[x])]
-          ndest <- length(upslope)
-        }
+                  function(x)
+                  {
+                    adj <- adjacent(dem,x,directions=8,pairs=FALSE)
+                    upslope <- adj[which(dem[adj]>dem[x])]
+                    ndest <- length(upslope)
+                  }
   )
 
   outlet <- adj[which.max(ndest)]
@@ -420,7 +357,7 @@ locate.outlet <- function(dem, cell=NULL)
 
 # flow.lens.2 <- function(dem, cells=NULL, dest=NULL, samp=30)
 # {
-#   dem <- fill.sinks(dem, deg=0.5, silent=F)
+#   dem <- fill.sinks(dem, deg=0.5, silent=FALSE)
 #   dir <- terrain(dem, "flowdir")
 #   if(is.null(cells))
 #   {
@@ -451,108 +388,252 @@ locate.outlet <- function(dem, cell=NULL)
 # 	return(class(x)[1] %in% classes)
 # }
 
-# use the lengths and dem to obatin a 3-band grouping foet he catchment
-# then apply the no. custs to teh corresponding layer. Combine to
-# produce a final HSU classification
-# if channels are supplied then remove the river cells from the calculation
-combine.groupings <- function(dem,
-                             	layers=list(),
-														 	catch=NULL,
-														 	chans=NULL,
-							 								cuts=c(a=5),
-              								thresh=2/100,   # threshold hsu area contrib
-														 	equal.areas =F ) # if T then groups are strictly equal in plan area
+# thresh=2/100,   # threshold hsu area contrib
+# remove.areas    Logical If TRUE remove regions below the area threshold, otherwise attempt to combine with adjacent groups until reaching the threshold
+# burn.hrus       Additional layers that are "stamped" into the discretisation. Ignore their size
+combine.groupings.2 <- function(dem,
+                                layers=list(),
+                                catch=NULL,
+                                chans=NULL,
+                                cuts=c(a=5),
+                                burn.hrus=list(),
+                                river.cells.na=FALSE,
+                                thresh=2/100,   # threshold hsu area contrib
+                                remove.areas=TRUE,
+                                renumber=FALSE
+) # if TRUE then groups are strictly equal in plan area
 {
-	if(is.null(catch))
-	{ # has to be at least one layer supplied
-		layers <- delete.NULLs(layers)
-  	catch<- raster::stack(layers)
-	}
+  if(is.null(catch))
+  { # has to be at least one layer supplied
+    layers <- delete.NULLs(layers)
+    catch<- raster::stack(layers)
+  }
 
-  if(!is.null(chans))
+  if(!is.null(chans) & river.cells.na)
   {
     # remove river cells from calcs
     ichan <- which(chans[[1]][]>0)
     catch[ichan] <- NA
   }
 
-  # select names in stack matching discretisation
-  nms <- intersect(names(catch), names(cuts))
+  # select names in stack matching discretisation. apply in order of cuts
+  nms <- intersect(names(cuts), names(catch))
+
+  if(length(nms)==0){stop("No layers found in catchment raster stack matching names of cuts to be applied")}
+
+  # if(length(nms)<length(names(nms.provided)))
+  # {
+  #   warning("Some names in catchment layers, ", names(catch), ", not found in cut names, ", names(cuts))
+  # }
+  #
+  # default is just one HSU representin entire catchment
+  # cm <- dem-dem+101
+
+  crit <- NULL
+  # cut each band according to the the number of breaks specified for that layer
+  # then combine into a single raster whose values indicate the group index for each cell
+  cm <- NULL
+  layer.vals <- NULL
+  ilayer <- 1
+
+  #
+  tab.vals <- NULL
+
+  for(nm in nms)
+  {
+    message("Discretising layer ", nm)
+    layers.cut <- raster::cut(catch[[nm]], breaks=cuts[[nm]]) #, labels=FALSE)
+    if(is.null(layer.vals))
+    {
+      layer.vals <- layers.cut
+    }
+    else
+    {
+      layer.vals <- addLayer(layer.vals, layers.cut)
+    }
+    # encoding the values
+    ids <- layers.cut*(10^ilayer)
+    if(is.null(cm))
+    {
+      cm <- ids
+    }else
+    {
+      cm <- cm + max(ids, 0, na.rm=TRUE)
+    }
+    ilayer <- ilayer+1
+  }
+  # supress groups that occupy too small an area
+  if(remove.areas)
+  {
+    ibad <- locate_invalid_groups(cm, thresh)
+    if(length(ibad)>0)
+    {
+      cm[which(cm[] %in% ibad)] <- NA
+    }
+  }
+  else
+  {
+    ids <- merge.groups(cm, thresh,
+                        remove = remove.areas)
+    cm[which(cm[] %in% ids)] <-NA
+  }
+  if(renumber)
+  {
+    # renumber so HRU ids are in sequential order
+    subs2 <- data.frame(cbind(unique(cm, na.rm=TRUE), 100+order(unique(cm, na.rm=TRUE))))
+    cm <- subs(cm, subs2)
+  }
+
+  # adding layers that get stamped into discretisation
+
+  names(cm)<-"HRU"
+  # add in the dem and each original layer plus its discretised layer
+  #
+  cm <- addLayer(cm, catch)
+
+
+  return(cm)
+}
+
+# use the lengths and dem to obatin a 3-band grouping foet he catchment
+# then apply the no. custs to teh corresponding layer. Combine to
+# produce a final HSU classification
+# if channels are supplied then remove the river cells from the calculation
+# spatial extent of hrus may supplied explicitily via the optionally named list hrus
+combine.groupings <- function(dem,
+                              layers=list(),
+                              catch=NULL,
+                              chans=NULL,
+                              cuts=c(a=5),
+                              hrus=list(),  # additional layers
+                              river.cells.na=FALSE,
+                              thresh=2/100,   # threshold hsu area contrib
+                              equal.areas =FALSE ) # if TRUE then groups are strictly equal in plan area
+{
+  if(is.null(catch))
+  { # has to be at least one layer supplied
+    layers <- delete.NULLs(layers)
+    catch<- raster::stack(layers)
+  }
+
+  if(!is.null(chans) & river.cells.na)
+  {
+    # remove river cells from calcs
+    ichan <- which(chans[[1]][]>0)
+    catch[ichan] <- NA
+  }
+
+  # select names in stack matching discretisation. apply in order of cuts
+  nms <- intersect(names(cuts), names(catch))
 
   if(length(nms)==0){stop("No layers found in catchment raster stack matching names of cuts to be applied")}
 
   # default is just one HSU representin entire catchment
-	cm <- dem-dem+101
+  cm <- dem-dem+101
 
-	ints <- list()
-	#if(!all(names(cuts) %in% names(catch)))
-	# apply hsu id for point by combining the cut value in each layer
-	for(nm in nms)
-	{
-		for(id in raster::unique(cm))
-		{
-			idcells <- which(cm[]==id)
-			n.cut <- cuts[[nm]]
-			# cut cells already in this grouping according to the sublevel
-			if(is.null(n.cut))
-			{
-				stop(paste(nm, " specified as cut variable but no corresponding layer found"))
-			}
-			if(n.cut>1)
-			{
-				laycutvals <- cut(catch[[nm]][idcells], n.cut, labels=F)
+  ints <- list()
+  #if(!all(names(cuts) %in% names(catch)))
+  # apply hsu id for point by combining the cut value in each layer
 
 
-			}
-			else{
+  for(nm in nms)
+  {
+    cm <- addLayer()
+    for(id in raster::unique(cm))
+    {
+      idcells <- which(cm[]==id)
+      n.cut <- cuts[[nm]]
+      # cut cells already in this grouping according to the sublevel
+      if(is.null(n.cut))
+      {
+        stop(paste(nm, " specified as cut variable but no corresponding layer found"))
+      }
+      if(n.cut>1)
+      {
+        laycutvals <- cut(catch[[nm]][idcells], n.cut, labels=FALSE)
+      }
+      else{
         # one cuts only so return just when a nin-NA values existin
-				laycutvals <- as.numeric(catch[[nm]][idcells]>=0)
-			}
-			# build new id from top level category plus sub level
-			cm[idcells]<-10*cm[idcells] + laycutvals
-		}
-	}
+        laycutvals <- as.numeric(catch[[nm]][idcells]>=0)
+      }
+      # build new id from top level category plus sub level
+      cm[idcells]<-10*cm[idcells] + laycutvals
+    }
+  }
   # need this to distinguish channel and land HSUs
-  if(max(cm[],na.rm=T)<100)
+  if(max(cm[],na.rm=TRUE)<100)
   {cm<-cm+100}
 
   # merge smaller groups
-  # source list
   cm <- merge.groups(cm, thresh)
   cm <- merge.groups(cm, ids=rev(unique(cm)), thresh)
 
-  subs2 <- data.frame(cbind(unique(cm, na.rm=T), 100+order(unique(cm, na.rm=T))))
+  # renumber
+  subs2 <- data.frame(cbind(unique(cm, na.rm=TRUE), 100+order(unique(cm, na.rm=TRUE))))
   cm <- subs(cm, subs2)
 
+  names(cm)<-"HRU"
+  # add in the dem and each discrteised layer
+  cm <- addLayer(cm, catch)
 
-	names(cm)<-"HRU"
-	# add in the dem and each discrteised layer
-	cm <- addLayer(cm, catch)
+  return(cm)
+}
 
-	return(cm)
+# if discrete HRUs supplied (as rasters) stamp these into the discretisation
+burn_layers <- function(cm, burn.hrus=list(), exp=10)
+{
+  id <- max(unique(cm[]), na.rm=TRUE)
+
+  # which power of ten to use to create IDs
+  pow <- trunc(log10(id))+1
+
+  for(hru in burn.hrus)
+  {
+    message("Burning in layer ", names(hru))
+    vals <- unique(hru)
+    vals <- vals[which(vals>0)]
+    # assuuming that the values are < 10 otherwise coukd get confusing
+    if(max(vals)>=exp)
+    {
+      # hard stop!
+      stop("Maximum value in layer > exponent of ", exp, " increase to ", exp*10)
+    }
+    for(val in vals)
+    {
+      # order of 10 greater to identify the
+      id <- 10^pow*val
+      icell <- which(hru[]==val)
+      cm[icell]<- id
+    }
+
+
+    pow <- pow + 1
+  }
+  return(cm)
+
 }
 
 get_group_bounds <- function(cm)
 {
-    nms <- setdiff(names(cm), "HRU")
-    hru <- cm[["HRU"]]
-    # determine set bounds
-    bnds <- NULL
-    for(nm in nms)
-    {
-        cats <- split(cm[[nm]][], hru[])
-        cats <- lapply(cats, range, na.rm=T)
-        cats <- do.call(rbind, cats)
-        colnames(cats)<-paste(nm, c("min", "max"), sep=".")
-        bnds <- cbind(bnds, cats)
-    }
+  nms <- setdiff(names(cm), "HRU")
+  hru <- cm[["HRU"]]
+  # determine set bounds
+  bnds <- NULL
+  for(nm in nms)
+  {
+    cats <- split(cm[[nm]][], hru[])
+    cats <- lapply(cats, range, na.rm=TRUE)
+    cats <- do.call(rbind, cats)
+    colnames(cats)<-paste(nm, c("min", "max"), sep=".")
+    bnds <- cbind(bnds, cats)
+  }
 
-    return(bnds)
+  return(bnds)
 }
 
-merge.groups <- function(cm, thresh, ids=unique(cm))
+merge.groups <- function(cm, thresh, ids=unique(cm), remove=FALSE)
 {
- # ids <- unique(cm)
+  # ids <- unique(cm)
   # id mapping
   map <- data.frame()
   i <- 1
@@ -574,97 +655,28 @@ merge.groups <- function(cm, thresh, ids=unique(cm))
     i<- i+j
   }
   ids <- rev(ids)
+  if(remove)
+  {
+    # just return the HRU ids so they can be removed from the discretisation altogether
+    return(ids)
+  }
   return(subs(cm, map))
 }
 
-# PlotGroupings <- function(cm, dem, drn, sel=extent(cm),legend=T, gridcells=F, ...)
-# {
-#
-# 	groups <- build.hru.table(cm)
-# 	ngroups <- nrow(groups)
-# 	nchan <- length(which(groups[,1]<100))
-# 	cm <- cm[[1]]
-# 	# substitute values so group numbers are sequenetial
-# 	cm <- subs(cm, groups)
-# 	cm<-cm-nchan
-# 	cm[which(cm[]<0)]<-0
-# 	cols <-  terrain.colors(ngroups-nchan)
-# 	#(rep("blue", nchan),
-# 	PlotDemADrn(dem, drn, a=cm, sel=sel, col=c("lightblue", cols), legend=F, ...)
-# 	if(legend)
-# 	{
-# 	legend(x="bottomleft", legend=groups[(nchan+1):nrow(groups),3],
-# 		   ncol=2,bg="white",fill=cols, title="Eff distance to channel (m) / log(a) / slope angle ?")
-# 	}
-#
-# 	if(gridcells)
-# 	{
-# 		HighlightCells(cm,cellsFromExtent(cm,sel))
-# 	}
-#
-# }
-#
-#
-# # draw arrows from a cell to downslope location with thicknesses proportional
-# #to teh proportion of flow in each directiom
-# ShowAllocation <- function(dem, cellno, maxwidth=5, cex.text=1, label=T)
-# {
-# 	down <- DownslopeFlowAllocations(dem, cellno)
-#
-# 	fromxy <- xyFromCell(dem, cellno)
-#
-# 	apply(down, MARGIN=1,
-# 		  FUN=function(tocell)
-# 		  {
-# 		  	width <- max(1,tocell[2]*maxwidth) # < maxwidth
-# 		  	toxy <- xyFromCell(dem, tocell[1])
-# 		  	arrows(fromxy[1],fromxy[2],toxy[1],toxy[2],lwd=width,length=0.1)
-# 		  	if(label)
-# 		  	{
-# 		  	mid <- (fromxy+toxy)/2
-# 		  	text(mid[1], mid[2], round(tocell[2],1), cex=cex.text)}
-# 		  }
-# 	)
-# }
-
-build.hru.spatial <- function(disc, drn=disc$drn)
+# locate groups that occupy less than the given threshold of the
+# catchment discxretisation
+locate_invalid_groups <- function(cm, thresh=2/100)
 {
-  if(!is.null(drn))
-  {
-    # convert drn to polygons
-    drn <- rgeos::gBuffer(drn, width=max(round(disc$chan.width/2), 1), byid=T)
-  }
-#  drn <- SpatialPolygonsDataFrame(drn, data=data.frame())
-  # create a spatial polygons dataframe object from the given
-  # for the given discretisation
-  ids <-  disc$groups[,"id"]
-  ngroups <- length(ids)  # includes river
 
-  hru.rast <- disc$hru.rast
-
-  cat("Building HRU polygons...")
-  hru.sp <- rasterToPolygons(disc, dissolve=T)
-  polys <- hru.sp@polygons
-  poly.ids <- unique(hru.rast)
-    #     if(!is.null(drn))
-    #     {
-    #       drnbuff <- gBuffer(drn, width=max(round(chan.width/2+0.5), 1), byid=T)
-    #       polys <- c(drnbuff@polygons, polys)
-    #       poly.ids <- c(1:length(drnbuff@polygons), poly.ids)
-    #     }
-    # reconstruct SpatialPolygons object
-  hru <- SpatialPolygons(polys, proj4string=hru.rast@crs)
-  # check that group and polygon ids are equal
-  try(if(!all(ids==poly.ids)){warning("error in groups and hru class ids")})
-  hru <- maptools::unionSpatialPolygons(hru, IDs=poly.ids)
-
-  dat <- data.frame(disc$groups[disc$groups[,"id"] %in% poly.ids,])
-  row.names(dat) <- dat$id
-  hru <- SpatialPolygonsDataFrame(hru, dat)
-
+  iall <- length(which(!is.na(cm[])))
+  ivals <- unique(cm)
+  counts <- tabulate(cm[])[ivals]
+  props <- counts/iall
+  return(ivals[which(props < thresh)])
 }
 
-mean.na <- function(x){return(mean(x, na.rm=T))}
+
+mean.na <- function(x){return(mean(x, na.rm=TRUE))}
 
 # shif the supplied raster so its BL corner is coincident woth the given origin
 reset.origin <- function(rast, origin=c(x=0,y=0))
@@ -676,128 +688,142 @@ reset.origin <- function(rast, origin=c(x=0,y=0))
 # group summary table with optional raster of cell proportions available for land
 # optionally supply raster with proportions of cells occupied by land: defaults to 1
 # if no channel
-
 build.hru.table<- function(cm,
-                       dem=NULL,
-                       reaches=NULL,
-                       cellareas=cm-cm+1,  # props occupied by land 0-1
-                       catch=NULL)
+                           dem,
+                           reaches=NULL,
+                           cellareas=cm-cm+1,  # props occupied by land 0-1
+                           catch=NULL)
 {
-	if(is.null(catch))
-	{
-		catch=cm[[2:nlayers(cm)]]
-		# assume that catchment discretistaion info is passed via the other layer of
-		# the multi-band rasteres
-		cm <- cm[[1]]
-	}
-    a.atb <- NULL
-    if(all(c("a", "atb") %in% names(catch)))
-    {
-	    a.atb <- catch[[c("a", "atb")]]
-    }
-	ids <- unique(cm[[1]])
- 	# handle outside the class matrix
-    cellareas[which(is.na(cellareas[])&!is.na(cm[]))]<-1
-	# maximum plan area of land within each cell
+  if(is.null(catch))
+  {
+    catch=cm[[2:nlayers(cm)]]
+    # assume that catchment discretistaion info is passed via the other layer of
+    # the multi-band rasteres
+    cm <- cm[[1]]
+  }
+  a.atb <- NULL
+  if(all(c("a", "atb") %in% names(catch)))
+  {
+    a.atb <- catch[[c("a", "atb")]]
+  }
+  ids <- unique(cm[[1]])
+  # handle outside the class matrix
+  cellareas[which(is.na(cellareas[])&!is.na(cm[]))]<-1
+  # maximum plan area of land within each cell
   maxCellArea <- xres(cm)*yres(cm)
 
-	cat("Building areas...")
-	areas<- sapply(ids,
+  cat("Building areas...")
+  areas<- sapply(ids,
                  function(id)
-                   {
-                    cm.props <- cellareas[]*(cm==id)[]
-             #       browser()
-                    sum(cm.props[], na.rm=T)* maxCellArea
+                 {
+                   cm.props <- cellareas[]*(cm==id)[]
+                   #       browser()
+                   sum(cm.props[], na.rm=TRUE)* maxCellArea
                  }
-	)
+  )
 
-	# add in river reaches, removing the area covered by channel from the
-	# corresponding groups
-	if(!is.null(reaches))
-	{
-		# determine land areas occupied by each channel and insert ids and areas
-		# at head of group table
-		chans <- zonal((1-cellareas)*maxCellArea, reaches, fun=sum) # sum the areas of cells classed by channel id multiplied by proportion ocuupied for edach
-		# two colums: id, area (nas removed)
-		areas <- c(chans[,2], areas)
-		ids <- c(chans[,1], ids)
-# 		ids <- c(rids, ids)
-	}
+  # add in river reaches, removing the area covered by channel from the
+  # corresponding groups
+  if(!is.null(reaches))
+  {
+    # determine land areas occupied by each channel and insert ids and areas
+    # at head of group table
+    chans <- zonal((1-cellareas)*maxCellArea, reaches, fun=sum) # sum the areas of cells classed by channel id multiplied by proportion ocuupied for edach
+    # two colums: id, area (nas removed)
+    areas <- c(chans[,2], areas)
+    ids <- c(chans[,1], ids)
+    # 		ids <- c(rids, ids)
+  }
 
+  nchans <- nrow(chans)
+  
   # total catchment area (includes reaches)
   totArea <- sum(areas)
 
-	# reordering so that river reaches appear first. add 100 to distinguish reaches from land hsus
-#	orders <- c(100+((nchan+1):ngroups), 1:nchan)
+  # reordering so that river reaches appear first. add 100 to distinguish reaches from land hsus
+  #	orders <- c(100+((nchan+1):ngroups), 1:nchan)
 
-	# build table, first two columns will be used to renumber the
-	groups <- data.frame("id"=ids,
-	                     "tag"=ids,
+  # maximum flow is when unit reaches saturation. Transmissivity is lnT0 at this point and flow out
+  # per unit contour is lnT0 * dhdt. Using local slope as proxy. Sum these and take average over entire area
+  # as an very crude approximation to maximum.
+  slope <- terrain(dem, opt="slope") #
+  # default aggregation function is mean
+  sbar <- zonal(slope, cm)[,2]
+
+  # build table, first two columns identify the units
+  groups <- data.frame("id"=ids,
+                       "tag"=ids,
                        "chan.no"=NA,
-						 "order"=1:length(ids),
-		#				 "breaks"=ints,
-						 "area_pc"=round(100*(areas/totArea),2),
-						 "area"=round(areas))
+                       "order"=1:length(ids),
+                       "area_pc"=round(100*(areas/totArea),2),
+                       "area"=round(areas),
+                       "sbar"=c(rep(1e6, nchans), sbar))
 
-#	groups <- cbind(groups, "atb.bar"=0)
+  #	groups <- cbind(groups, "atb.bar"=0)
+  # add other default values
   groups <- add.upslope.areas(groups, dem, cm, a.atb=a.atb,
-  													area_pcs=cellareas)
-	groups$atb.bar <- round(groups$atb.bar, 2)
-	groups <- cbind(groups, "gauge.id"=1)
+                              area_pcs=cellareas)
+  # average of TWI
+  groups$atb.bar <- round(groups$atb.bar, 2)
+
+  # which rainfall / pe record is associated with each HRU
+  groups <- cbind(groups, "gauge.id"=1)
+
+  # not used?
   groups <- cbind(groups, "catch.id"=1)
-    add.par <- def.hsu.par()
-    nms <- setdiff(names(add.par), names(groups))
-    add.par <- add.par[nms]
-  pars <- data.frame(matrix(rep(add.par, nrow(groups)), byrow=T, nrow=nrow(groups)))
+  add.par <- def.hsu.par()
+  nms <- setdiff(names(add.par), names(groups))
+  add.par <- add.par[nms]
+  pars <- data.frame(matrix(rep(add.par, nrow(groups)), byrow=TRUE, nrow=nrow(groups)))
   colnames(pars) <- nms
 
   groups<- cbind(groups, pars)
   groups <- apply(groups, MARGIN=2, FUN=function(x){unlist(x)})
 
-    #row.names(groups) <- groups[,1]
-	return(data.frame(groups, 	row.names=groups[,1]))
+  #row.names(groups) <- groups[,1]
+  return(data.frame(groups, 	row.names=groups[,1]))
 }
 
 # locate nearest aws to each group and return index
-add.nearest.gauge <- function(groups, hru.sp, drn, gauges)
-{
-  ids <- groups$id
-#  groups <- sort(groups$hru.sp)
-
-  for(i.group in 1:nrow(groups))
-  {
-    id <- groups[i.group,]$id
-    hru.geom
-    # locate the geometry associated with the group
-    hru.geom <- hru.sp[which(hru.sp$HRU==id),]
-    cent <- rgeos::gCentroid(hru.geom)
-    # locate current max
-    dist <- rgeos::gDistance(cent, gauges[i.gauge,])
-    for(i.gauge in 1:nrow(gauges))
-    {
-      if(rgeos::gDistance(cent, gauges[i.gauge,])<dist)
-      {
-        groups[i.group,]$gauge.id  <- i.gauge
-      }
-    }
-  }
-  hru.sp@data <- groups
-  return(hru.sp)
-}
+# add.nearest.gauge <- function(groups, hru.sp, drn, gauges)
+# {
+#   ids <- groups$id
+#   #  groups <- sort(groups$hru.sp)
+#
+#   for(i.group in 1:nrow(groups))
+#   {
+#     id <- groups[i.group,]$id
+#     hru.geom
+#     # locate the geometry associated with the group
+#     hru.geom <- hru.sp[which(hru.sp$HRU==id),]
+#     cent <- rgeos::gCentroid(hru.geom)
+#     # locate current max
+#     dist <- rgeos::gDistance(cent, gauges[i.gauge,])
+#     for(i.gauge in 1:nrow(gauges))
+#     {
+#       if(rgeos::gDistance(cent, gauges[i.gauge,])<dist)
+#       {
+#         groups[i.group,]$gauge.id  <- i.gauge
+#       }
+#     }
+#   }
+#   hru.sp@data <- groups
+#   return(hru.sp)
+# }
 
 # add total upslope area and mean topographic index to groups info
 add.upslope.areas <- function(groups, dem, class.m, a.atb=NULL,
-														area_pcs=round(dem/dem))   # optional ratser of cell areas occupied by land
+                              area_pcs=round(dem/dem))   # optional ratser of cell areas occupied by land
 {
   if(!(is.null(dem) | is.null(class.m)))
   {
-  	if(is.null(a.atb))
-  	{
-    	# mean ln(a/tan(b))
-    	a.atb <- upslope.area(dem, atb=T)
-  	}
-# uncomment to remove cells containg channel from analysis
-      area_pcs[area_pcs<1]<- NA
+    if(is.null(a.atb))
+    {
+      # mean ln(a/tan(b))
+      a.atb <- upslope.area(dem, atb=TRUE)
+    }
+    # uncomment to remove cells containg channel from analysis
+    area_pcs[area_pcs<1]<- NA
     # deal with cells partly ocuppied by river channel
     atb.adj <- a.atb[["atb"]]+log(area_pcs)
     # zonal statistics - mean is default. Values adjusted for any cells containing
@@ -806,7 +832,7 @@ add.upslope.areas <- function(groups, dem, class.m, a.atb=NULL,
 
     # specific discharge per unit recharge [-] assuming steady state.
     # a measure of the relative yield of the area?
-  #  sigma.a <- zonal(raster::setValues(dem,a.atb$area), cm, "mean")  # this must have the same first row
+    #  sigma.a <- zonal(raster::setValues(dem,a.atb$area), cm, "mean")  # this must have the same first row
     for(row in 1:nrow(atb))
     {
       id <- atb[row,1]
@@ -817,11 +843,11 @@ add.upslope.areas <- function(groups, dem, class.m, a.atb=NULL,
       }
       else
       {
-      #  cat(id, "\t", indx, "\n")
-      # this assummes that every id in the raster has a corresponding id in the table....
-      groups[indx,"atb.bar"]<- atb[row,2]
-      # q over r
-     # groups[indx,"sigma.a"]<- sigma.a[row,2]/groups[indx,]$area
+        #  cat(id, "\t", indx, "\n")
+        # this assummes that every id in the raster has a corresponding id in the table....
+        groups[indx,"atb.bar"]<- atb[row,2]
+        # q over r
+        # groups[indx,"sigma.a"]<- sigma.a[row,2]/groups[indx,]$area
       }
     }
   }
@@ -849,65 +875,7 @@ mem.copy <- function(rast)
     return(layers[[1]])
   }
 }
-#############################################################
-# raster of reach locations and cell proportion occupied
-#############################################################
-build.reach.raster <- function(dem, drn, nchan=nrow(drn),
-															 copy.to.mem=T,
-															 atb=NULL,
-															 atb.thresh=0.8,  # if drn not supplied then use this as threshold contributing area
-                               chan.width=1)
-{
-	# build the raster of river cells. Value gives the proportion of ech cell occupied by the channel
-	if(is.null(drn) & !is.null(atb))
-	{
-		a <- upslope.area(dem, fill.sinks=T)
-		message("Identifying channel(s) from TWI...")
-		a.thresh <- max(atb[], na.rm=T)*atb.thresh
-		# use the TWI to idenifty the channel as those areas exceeding the threshold
-		reaches<- atb > a.thresh
-		reaches[which(reaches[])] <- 1
-		reaches[which(reaches[]==0)] <-NA
-	}
-	else if(!is.null(drn))
-	{
-		if(copy.to.mem)
-		{
-			dem <- mem.copy(dem)  # to prevent disk thrashing
-		}
-		reaches <- dem
-		reaches[] <- NA
-		# one row per channel
-		reach.cells <- lapply(extract(dem, drn, cellnumbers=T),
-													function(r)
-													{
-														r[,1]
-													})
 
-		ilen <- sapply(reach.cells, length)
-		# ensure each reach identified with at least cell, so apply in reverse order of length
-		for(i in order(sapply(reach.cells, length), decreasing=T))
-		{
-			reaches[reach.cells[[i]]] <- i
-		}
-	}
-	else
-	{
-		stop("Supply channels as shapefile or supply raster of TWI")
-	}
-
-	# calculate the cell proportions
-	prop <- min(chan.width/xres(dem), 1)
-#	cellprops <- reaches*min(chan.width/xres(dem), 1)
-
-	# add a layer with proportions of cell occuppied by channel. estimated by
-	# proportion of cell size to channel width, probably close enough
-	reaches <- addLayer(reaches, (reaches>0)*prop)
-
-	names(reaches)=c("chan", "chanprop")
-
-	return(reaches)
-}
 
 
 get.def.thresh <- function(area.thresh=1)
@@ -923,7 +891,7 @@ get.defs <- function()
 
 # create a new discretisation and add to project's list. if it exists already then just add
 # to list of discretisations, unless rebuild is true in which case rebuid the components
-# add.disc <- function(proj, cuts=NULL, i.disc=0, rebuild=F, chan.width=2,
+# add.disc <- function(proj, cuts=NULL, i.disc=0, rebuild=FALSE, chan.width=2,
 # 										 ...)
 # {
 # 	# proj <- merge.lists(proj, list(...))
@@ -977,13 +945,13 @@ get.defs <- function()
 # discretisation of catchment according to topographic index
 disc.topidx <- function(dem, riv, nbreaks)
 {
-  atb<-upslope.area(dem, atb=T)[["atb"]]
+  atb<-upslope.area(dem, atb=TRUE)[["atb"]]
   if(!is.null(riv))
   {
     atb[which(riv[]>0)]<-NA  # ignore river cells
   }
 
-  atb.hist <- hist(atb, breaks=nbreaks, freq=F)
+  atb.hist <- hist(atb, breaks=nbreaks, freq=FALSE)
   tot <- sum(atb.hist$counts)
   # second col is for proportion occupied - final entry is zero for count of cells > final break
   topidx.frame <- cbind(atb=atb.hist$breaks, prop=c(atb.hist$counts/tot, 0))
@@ -1014,7 +982,7 @@ get.routing.table <- function(dem, nreach=5)
 disc.dir.name <- function(cuts, dn="", area.thresh=0)
 {
   # convert to %age
-#  if(area.thresh<1){area.thresh <- area.thresh*100}
+  #  if(area.thresh<1){area.thresh <- area.thresh*100}
   return(file.path(dn, paste0(names(cuts),"=", cuts, collapse=",")))
 }
 
@@ -1042,37 +1010,37 @@ aggregate.null <- function(rast, fact, fun=mean)
 
 get.flow.distribution.matrix <- function(dem, cm, reaches, sf=3)
 {
-	agg <- max(1,round((ncell(dem)/1e6)))
-	if(agg>1){
-		message(paste0("Aggregating dem by factor of ", agg))
-	}
-	dem <- aggregate.null(dem, agg)
-	cm <- aggregate.null(cm, agg, fun=modal)
-	reaches <- aggregate.null(reaches, agg)
+  agg <- max(1,round((ncell(dem)/1e6)))
+  if(agg>1){
+    message(paste0("Aggregating dem by factor of ", agg))
+  }
+  dem <- aggregate.null(dem, agg)
+  cm <- aggregate.null(cm, agg, fun=modal)
+  reaches <- aggregate.null(reaches, agg)
 
-	message("Creating flow transistion matrix....")
+  message("Creating flow transistion matrix....")
   # flow transistion matrix including transfers to river
-	w <- build.flow.dist.matrix(cm=cm, dem=dem, reaches=reaches)
-	# always require some kind of channel identification raster even if constructed from DEM
-	message("Creating channel routing matrix....")
-	# construct flow connectivity graph using the reach identification raster previously loaded
-	# or built, using reach ids as the "classification" and flow weightings from dem.
-	adj <- build.flow.dist.matrix(cm=reaches[[1]], dem=dem, reaches=NULL)
+  w <- build.flow.dist.matrix(cm=cm, dem=dem, reaches=reaches)
+  # always require some kind of channel identification raster even if constructed from DEM
+  message("Creating channel routing matrix....")
+  # construct flow connectivity graph using the reach identification raster previously loaded
+  # or built, using reach ids as the "classification" and flow weightings from dem.
+  adj <- build.flow.dist.matrix(cm=reaches[[1]], dem=dem, reaches=NULL)
 
-	# clear the weights for all river hsus, then add the adjacency matrix
-	# overwrite channel entries of weighting matrix with river connections
-	w<- as.matrix(w)
+  # clear the weights for all river hsus, then add the adjacency matrix
+  # overwrite channel entries of weighting matrix with river connections
+  w<- as.matrix(w)
   ichan <- 1:nrow(adj)
-	w[ichan,]<-0
+  w[ichan,]<-0
 
-	w[ichan, ichan] <-  as.matrix(adj)
-	w <- signif(w, sf)
+  w[ichan, ichan] <-  as.matrix(adj)
+  w <- signif(w, sf)
   row.names(w)[ichan]<- paste0("R", row.names(adj))
-	ids <- row.names(w)
+  ids <- row.names(w)
 
-	rownames(w)<- ids
-	colnames(w)<- ids
-	return(w)
+  rownames(w)<- ids
+  colnames(w)<- ids
+  return(w)
 }
 
 #
@@ -1105,11 +1073,11 @@ get.flow.distribution.matrix <- function(dem, cm, reaches, sf=3)
 
 # not needed: Laplacian filter for raster focal function
 #fact <-1/sqrt(2)
-#downslope.contour.filter <- matrix(c(fact, 1, fact, 1,1, 1,fact,1,fact), nrow=3, byrow=T)
+#downslope.contour.filter <- matrix(c(fact, 1, fact, 1,1, 1,fact,1,fact), nrow=3, byrow=TRUE)
 
 FindNext <- function(x)
 {
- # browser()
+  # browser()
   cur <- x[5]
   if(is.na(cur))
   {

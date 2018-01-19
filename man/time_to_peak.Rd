@@ -11,10 +11,10 @@ time_to_peak(rain, qsim, units = "hour")
 
 \item{qsim}{Time series of discharges.}
 
-\item{units}{Units in which to return the value.}
+\item{units}{Units in which to return the value}
 }
 \description{
-Return the lag, in hours, between the peak in the rainfall record and that of the discharge response.
+Return the lag, in hours, between the peak in the rainfall record and that of the discharge
 }
 \examples{
 
@@ -24,10 +24,9 @@ data(brompton)
 
 with(brompton$storm.run, time_to_peak(rain, qsim))
 }
-\author{
-Peter Metcalfe
-}
 \seealso{
 time_at_peak
 }
-
+\author{
+Peter Metcalfe
+}

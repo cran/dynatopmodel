@@ -4,8 +4,10 @@
 \alias{disp_output}
 \title{Display output of a Dynamic TOPMODEL  run}
 \usage{
-disp_output(qsim, rain, evap = NULL, qobs = NULL, tm = NULL, par = NULL,
-  start = min(index(qsim)), end = max(index(qsim)), ...)
+disp_output(qsim, rain, evap = NULL, qobs = NULL, tm = NULL,
+  start = min(index(qsim)), end = max(index(qsim)),
+  par = get.disp.par(lwd.rain = 3, qint = 0.1), show.maxima = FALSE,
+  freq = "day", pch.qsim = "+", pch.obs = "*", ...)
 }
 \arguments{
 \item{qsim}{Time series of simulated discharges.}
@@ -18,11 +20,19 @@ disp_output(qsim, rain, evap = NULL, qobs = NULL, tm = NULL, par = NULL,
 
 \item{tm}{Display a vertical line at this time in the simulation. If NULL no line will be drawn.}
 
-\item{par}{Parameters controlling display output. A default set may be obtained through a call to disp.par.}
-
 \item{start}{Start time for plot in a format interpretable as POSIXct date time. Defaults start of simulated discharges.}
 
 \item{end}{End time for plot in a format interpretable as POSIXct date time. Defaults to end of simulated discharges.}
+
+\item{par}{Parameters controlling display output. A default set may be obtained through a call to disp.par.}
+
+\item{show.maxima}{Boolean Whether to show the daily maxima as points}
+
+\item{freq}{character Period for which maxima are identified, day by default}
+
+\item{pch.qsim}{character Symbol for plotting maxima of simulations, if stipulated}
+
+\item{pch.obs}{character Symbol for plotting maxima of observations, if these are supplied}
 
 \item{...}{Any further named parameters will be treated as graphics parameters and applied throughout the plot.}
 }
@@ -30,7 +40,7 @@ disp_output(qsim, rain, evap = NULL, qobs = NULL, tm = NULL, par = NULL,
 Simple output of the results of a simulation.
 }
 \details{
-This will render the hydrograph, any observations, actual evapotranpiration, if supplied, and the rainfall hyetograph.
+This will render the hydrograph, any observations, actual evapotranspiration, if supplied, and the rainfall hyetograph.
 }
 \examples{
 \dontrun{
@@ -45,10 +55,9 @@ with(brompton$storm.run, disp_output(evap=ae*1000,qobs=qobs*1000,
                                      max.q=2, cex.main=1, col.axis="slategrey", las.time=1))
 }
 }
-\author{
-Peter Metcalfe
-}
 \seealso{
 disp.par
 }
-
+\author{
+Peter Metcalfe
+}

@@ -25,23 +25,14 @@
 #' ylab="Network Width %", names.arg=tab[,1])
 #' }
 build_routing_table<- function(dem,
-                              chans=NULL,
-                              outlet=NULL,       # cell or point
-                              breaks=5,
-                              len.fun=flow.lens)   #simple.dist.to.outlet)
+                               chans=NULL,
+                               outlet=NULL,       # cell or point
+                               breaks=5,
+                               len.fun=flow.lens)   #simple.dist.to.outlet)
 {
   outlets=NULL      # (not currently used) if routing to multiple basins these are the outlet cells for each
-  #	reaches <- determine.reaches(dem, drn, reaches)
-  #	drn.cells <- extract.cells(dem, drn)
-  #
-  #	hru <- hru[[1]][]
-  # default outlet is lowest part of catchment
 
-  # extract a dem for cell containing parts of the channel
-  #   if(!is.null(drn))
-  #   {
-  #   	drn.cells <- extract.cells(dem, gBuffer(drn, w=buff))
-  #   }
+  chans <- chans[[1]]
   if(!is.null(chans))
   {
     # just riprian areas
@@ -56,24 +47,17 @@ build_routing_table<- function(dem,
     # use everything
     drn.cells <- which(!is.na(dem[]))
   }
-
+  
   message("Calculating flow distances...")
-
+  
   # calculate flowlengths to outlet
   lens <- do.call(len.fun, list(dem=dem, src=drn.cells,  outlet=outlet))
-
-  # just consider lengths from the riparian zone
-  #lens[setdiff(1:ncell(lens), drn.cells)]<- NA
-  # bin the lengths into desired number of reach lengths
-  # 	if(is.null(rlens))
-  # 	{
-  #   	rlen. <- seq(0, max(lens[], na.rm=T), by=rlen)
-  # 	}
+  
   lens.riv <- dem -dem  + lens
-
+  
   # bin the length into the given number of classes
   len.bin <- cut(lens.riv, breaks=breaks)[]
-
+  
   sel <- which(!is.na(len.bin))
   # two column matrix of reach length cats and reach ids
   len.tab <- data.frame(reach=len.bin[sel], len=lens.riv[sel])
@@ -81,45 +65,104 @@ build_routing_table<- function(dem,
   mean.lens <- sapply(split(len.tab, as.factor(len.tab$reach)), function(tab){mean(tab$len)})
   ftab <- tabulate(len.bin[sel], breaks)   #length(rlens)-1)  #, len=lens.riv[sel])
   props <- ftab/sum(ftab)
-
+  
   routing <- data.frame("flow.len"=round(mean.lens), "prop"=round(props,2))
   # just the default
   if(length(outlets)==0)
   {
     return(routing)
   }
-#   for(i in 1:length(outlets))
-#   {
-#     if(!is.null(dists.outlets))
-#     {
-#       # precalculated flow distance
-#       lens.riv <- dists.outlets[[i]]
-#     }
-#     # lens <-   flow.lens.2(dem, drn.cells, outlet)
-#     else
-#     {
-#       # build a reach table based on flow distance to outlet, using just the cells around the drn
-#       # they can, however, take paths that don't follow the DRN!
-#       lens <- flow.lens(dem, src=drn.cells,  outlet=outlets[i])
-#       lens.riv <- dem -dem  + lens
-#       lens.riv <- lens.riv[which(!is.na(lens.riv))]
-#     }
-#
-#     len.bin <- cut(lens.riv, breaks=rlens, labels=F)
-#
-#     # bin the lengths into desired number of reach lengths
-#     #    rlens <- seq(0, max(lens.riv[], na.rm=T), by=rlen)
-#
-#     #sel <- which(!is.na(len.bin))
-#     # two column matrix of reach length cats and reach ids
-#     len.tab <- data.frame(reach=len.bin, len=lens.riv)
-#     # calculate mean flow distances for each of the classes?
-#     mean.lens <- sapply(split(len.tab, as.factor(len.tab$reach)), function(tab){mean(tab$len)})
-#     ftab <- tabulate(len.bin, length(rlens[-1]))  #, len=lens.riv[sel])
-#     props <- ftab   / npath
-#     routing <- cbind(round(routing), "prop"=round(props,2))
-#
-#   }
-#
-#   return(routing)
+}
+
+
+build_log_ovf_routing_table <- function(flow_dists,
+                                    nbreaks=15, 
+                                    dp=4,
+                                    chans=NULL)
+{
+  flow_dists <- flow_dists + 0.1
+
+  icell <- which(!is.na(flow_dists[]))
+  if(!is.null(chans))
+  {
+    ichan <- which(chans[[1]][]>0)
+    icell <- setdiff(icell, ichan)
+  }
+  # log flow dists to compress more distant flows  
+  log.lens <- range(log(flow_dists[icell]), na.rm=TRUE)
+
+  breaks.log <- seq(log.lens[1], log.lens[2], length.out=nbreaks)
+
+  bins <- tabulate(cut(log(flow_dists[icell]), breaks=breaks.log, labels=FALSE))
+  
+  breaks <- exp(breaks.log)
+  
+  # midpoints of the intervals, removes one break
+  breaks <- round((breaks[-length(breaks)]+breaks[-1])/2)
+  
+  if(length(breaks)!=length(bins))
+  {
+    stop("No. breaks != no.bins,", length(bins), " check overland routing")
+  }
+  
+  #  bins <- c(bins, max(bins))
+  # remove the lowest bound of 0
+  return(data.frame("flow.len"=breaks, "prop"=round(bins/length(icell), dp)))
+  
+  
+}
+
+# calculate a distance - areal fraction table for the given raster of 
+# overland flow distances to the nearest channel
+# anything further than max dist is ignored
+build_ovf_routing_table <- function(flow_dists,
+                                    nbreaks=8, 
+                                    seg_dist=100,
+                                    dp=4,
+                                    max_dist=max(flow_dists[],  na.rm=TRUE),
+                                    chans=NULL)
+{
+
+  if(!is.null(seg_dist))
+  {
+    # add a short break at the start to catch flows from next to the channel
+    # truncate at the maximum dist
+    breaks <- c(-0.1, 
+                seq(xres(flow_dists)+0.1, max_dist, seg_dist))
+
+    # flows from outside this area lumped together so routing doesn't take too long 
+    breaks <- c(breaks, max(flow_dists[], na.rm=TRUE)+seg_dist)
+  }
+  else
+  {
+    # calculate the bins, adding a buffer at either end
+    breaks <- seq(0, max(flow_dists[], na.rm=TRUE)*1.1, length.out=nbreaks)
+  }
+  
+  icell <- which(!is.na(flow_dists[]))
+  
+  if(!is.null(chans))
+  {
+    ichan <- which(chans[[1]][]>0)
+    icell <- setdiff(icell, ichan)
+  }
+  
+  bins <- tabulate(cut(flow_dists[icell], breaks=breaks, labels=FALSE))
+  
+  # midpoints of the intervals, removes one break
+  breaks <- round((breaks[-length(breaks)]+breaks[-1])/2)
+  
+  if(length(breaks)!=length(bins))
+  {
+    stop("No. breaks != no.bins,", length(bins), " check overland routing")
+  }
+  
+  iout <- which(breaks > max_dist)
+  
+  
+#  bins <- c(bins, max(bins))
+  # remove the lowest bound of 0
+  return(data.frame("flow.len"=breaks, "prop"=round(bins/length(icell), dp)))
+
+  
 }

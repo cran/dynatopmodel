@@ -7,14 +7,14 @@ require(raster)
 #' @export upslope.area
 #' @import raster
 #' @import topmodel
-#' @param dem   Elevation raster (in m), using a  projected coordinate system with identical x and y resolutions.
-#' @param log   Return the natural log of the values.
-#' @param atb   If TRUE, include both the upslope contributing area and the topographic wetness index \eqn{ln(a/tan(beta))}. Otherwise calculate just the upslope area.
-#' @param deg   Minimum intercell slope to identify with a sink (degrees).
+#' @param dem raster  Elevation raster (in m), using a  projected coordinate system with identical x and y resolutions.
+#' @param log Boolean  Return the natural log of the values.
+#' @param atb Boolean  If TRUE, include both the upslope contributing area and the topographic wetness index \eqn{ln(a/tan(beta))}. Otherwise calculate just the upslope area.
+#' @param deg numeric  Minimum intercell slope to identify with a sink (degrees).
 #' @param fill.sinks Fill sinks before calculation using the threshold angle given by deg.
 #' @note This is a wrapper to the function implemented in the TOPMODEL package by Wouter Buytaert.
 #' @author Peter Metcalfe and Wouter Buytaert
-#' @references Quinn, P. F., Beven, K. J., & Lamb, R. (1995). The In (a/tan/beta) index: How to calculate it and how to use it within the Topmodel framework. Hydrological processes, 9(2), 161-182.
+#' @references Quinn, P. FALSE., Beven, K. J., & Lamb, R. (1995). The In (a/tan/beta) index: How to calculate it and how to use it within the Topmodel framework. Hydrological processes, 9(2), 161-182.
 #' @examples
 #'\dontrun{
 #' require(dynatopmodel)
@@ -66,11 +66,11 @@ flow.lens <- function(dem,
   lens <- raster::setValues(dem, NA)
   if(length(outlet)>0)
   {
-    outlet.sp <- xyFromCell(dem, outlet, spatial=T)
+    outlet.sp <- xyFromCell(dem, outlet, spatial=TRUE)
   }
 
   dem.agg <- dem
-  while(agg <= max.agg & max(c(0,lens[]), na.rm=T)==0)
+  while(agg <= max.agg & max(c(0,lens[]), na.rm=TRUE)==0)
   {
     if(agg>1)
     {
@@ -107,7 +107,7 @@ flow.lens <- function(dem,
 
 extract.cells <- function(dem, drn,...)
 {
-  target <- extract(dem, drn, cellnumbers=T,...)
+  target <- extract(dem, drn, cellnumbers=TRUE,...)
   if(is.list(target))
   {
     return(do.call(rbind, target)[,1])
@@ -120,9 +120,9 @@ extract.cells <- function(dem, drn,...)
 
 
 fill.sinks <- function(dem, deg=0.01,
-         silent=T,
+         silent=TRUE,
          ipass=1,   # perform sinkfill a maximum of this times or until all sinks filled
-         fail.if.not.complete=F)
+         fail.if.not.complete=FALSE)
 {
   DEM <- as.matrix(dem)
   res <- xres(dem)
@@ -134,17 +134,17 @@ fill.sinks <- function(dem, deg=0.01,
 #  ncol <- dim(DEM)[2]
 
   i <- 1
-  sinks.remain <- T
+  sinks.remain <- TRUE
   while(i <= ipass & sinks.remain)
   {
     prev <- DEM
   #  DEM[is.na(DEM)] <- -9999
     capture.output(DEM <- topmodel::sinkfill(DEM, res, deg))
-    diff <- sum(DEM[]-prev[], na.rm=T)
+    diff <- sum(DEM[]-prev[], na.rm=TRUE)
     if(diff==0)
     {
       # there are definitely no sinks left now
-      sinks.remain <- F
+      sinks.remain <- FALSE
     }
 #
 #       .C("sinkfill", PACKAGE = "topmodel", as.double(DEM),
@@ -155,7 +155,7 @@ fill.sinks <- function(dem, deg=0.01,
 #     # 100 is max number of iterations, so if reached thsi then have to run the sinkfill again
 #     if(result[1]< 100 & result[1]>0)
 #     {
-#       sinks.remain <- F
+#       sinks.remain <- FALSE
 #
 #     }
 #     else if(!silent)

@@ -5,7 +5,7 @@
 #-------------------------------------------------------------------------------
 # given initial conditions x0 at t=t0, obtain approximate solution using Euler's
 # method at t=t1 to ODE dx/dt=func(x,t)
-solve.euler <- function(x0, t1, func, t0=0, nstep=10, return.all=F, implicit=F, ...)
+solve.euler <- function(x0, t1, func, t0=0, nstep=10, return.all=FALSE, implicit=FALSE, ...)
 {
 	if(implicit)
 	{
@@ -14,7 +14,7 @@ solve.euler <- function(x0, t1, func, t0=0, nstep=10, return.all=F, implicit=F, 
 		)
 	}
 	nx <- length(x0)
-	x <- matrix(NA,nrow=nstep, ncol=nx, byrow=T)
+	x <- matrix(NA,nrow=nstep, ncol=nx, byrow=TRUE)
 	x[1,]<- x0
 	dt <- (t1-t0)/nstep
 	for(i in 2:nstep)
@@ -30,7 +30,7 @@ solve.euler <- function(x0, t1, func, t0=0, nstep=10, return.all=F, implicit=F, 
 }
 
 # backwards implicit euler scheme using fixed point iteration
-solve.euler.implicit <- function(q0, t1, dqdt, t0=0, nstep=10, niter=30, eps=1e-6, return.all=F, ...)
+solve.euler.implicit <- function(q0, t1, dqdt, t0=0, nstep=10, niter=30, eps=1e-6, return.all=FALSE, ...)
 {
 	nq <- length(q0)
 	# qk+1=qk + dt * q'(tk+1, qk+1)
@@ -130,7 +130,7 @@ normalise.rows <- function(w)
     #     w <-apply(w, MARGIN=1,
     #               FUN=function(x)
     #               {
-    #                 sum <- sum(x, na.rm=T)
+    #                 sum <- sum(x, na.rm=TRUE)
     #                 res<- ifelse(sum==0, rep(0, length(x)), x/sum)
     #                 return(res)
     #               }
@@ -140,7 +140,7 @@ normalise.rows <- function(w)
     w <- apply(w, MARGIN=1,
                FUN=function(x)
                {
-                 sum <- sum(x, na.rm=T)
+                 sum <- sum(x, na.rm=TRUE)
                  res<- x/sum
                  return(res)
                })
@@ -154,12 +154,12 @@ normalise.rows <- function(w)
 }
 
 # graph utilities
-# produice an adjacency matrix for the graph (directed=F) or digraph (T)
+# produice an adjacency matrix for the graph (directed=FALSE) or digraph (TRUE)
 # i, j element is 1 if vertex i connects to vertex j
 # see Foulds (1992) Chapter 6 p.76-78
 AdjacencyMatrix <- function(conns,
                             n=max(conns), # max vertexes considered,defaults to max encountered in connection matrix
-                            directed=T)
+                            directed=TRUE)
 {
   res <- matrix(ncol=n, nrow=n)
   res[]<-0

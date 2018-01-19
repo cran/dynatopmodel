@@ -1,33 +1,11 @@
-Version 1.1
+Version 1.2.1
 ------------------------------------------------------------------------------
 NEW FEATURES
 
-* The kinematic routing between HRUs is solved by the lsoda implicit algorithm accessed via the 1D ODE solution deSolve::ode method 
-* Routines are now exported that preprocess each component of the data to supply to the core calculation:
- build_routing_table: generate the network width table
- build_chans: generate the channel network raster from a vector DRN or the wetness index
- build_layers: add upslope area and wetness index to catchment elevation raster
-
-Example case included is now for the Bromopton catchment in Norh Yorkshire.
+* Return flow is calculated by determining by any excess over limiting transmissivity of net upslope input.
 
 MAJOR CHANGES
-
-* removed / deprecated many of the project management and preprocessing routines in order to make components of the calculation clearer.
-The project source will be hosted on GitHub to allow access to the routines.
-These include:
-add.disc
-run.proj
-save.proj
-apply.params            
-build.calib.set      
-create.proj             
-disc.catch             
-write.disc             
-write.proj              
-
-* disp.run functionality supplied by disp_output
-* disc.catch renamed discretise
-
+* A logical error has been fixed in the calculation of maximum subsurface lateral transmissivity. This meant that too much surface runoff was being generated at low values of ln_t0.
 
 
 

@@ -5,29 +5,52 @@
 \title{Discrete a catchment into hydrological response units (HRUs)}
 \usage{
 discretise(layers, chans, cuts = list(a = 10), area.thresh = 2/100,
-  order.by = names(cuts)[[1]], chan.width = 5)
+  order.by = names(cuts)[[1]], riv.cells.na = FALSE, renumber = FALSE,
+  order = FALSE, burn.hrus = NULL, chan.width = 5, remove.areas = TRUE,
+  hrus = NULL)
 }
 \arguments{
-\item{layers}{A multi-band raster (stack) comprising the catchment data. This should be in a projected coordinate system (or none) and have reqular cells. The first layer should be the elevation raster, and subsequent (named) layers should supply the landscape data drawn in to create the discretisation}
+\item{layers}{A multi-band raster (stack) comprising the catchment data. This should be in a projected coordinate system (or none) and have regular cells. The first layer should be the elevation raster, and subsequent (named) layers should supply the landscape data drawn in to create the discretisation}
 
-\item{chans}{Raster containing channel reach locations, of the same dimensions and resolution of the DEM and other catchment layers. The reaches should be numbered sequentially and any areas not containing part of the channel should be NA. If a second band is supplied with values 0-1 then this is taken to be the proportion of the corresponding non-zero cell occuppied by the channel. If this layer is not present then the proportion is infered from the channel width as p = min(1, chan.width/xres(dem))}
+\item{chans}{Raster containing channel reach locations, of the same dimensions and resolution of the DEM and other catchment layers. The reaches should be numbered sequentially and any areas not containing part of the channel should be NA. If a second band is supplied with values 0-1 then this is taken to be the proportion of the corresponding non-zero cell occupied by the channel. If this layer is not present then the proportion is inferred from the channel width as p = min(1, chan.width/xres(dem))}
 
 \item{cuts}{A list of cuts of the form layer_name=number. Each name should correspond to a layer name in the layers parameter.}
 
-\item{area.thresh}{Minimum area for response units, expressed as a percentage of the catchment plan area, excluding channel cells. Areas smaller than this are aggregate dwith adjacent areas until exceeding the threshold aea}
+\item{area.thresh}{Minimum area for response units, expressed as a percentage of the catchment plan area, excluding channel cells. Areas smaller than this are aggregated with adjacent areas until exceeding the threshold area}
 
 \item{order.by}{Name of layer whose values will be use to sort the response units, in decreasing order. Defaults to the name of the first cut}
 
+\item{riv.cells.na}{Boolean Remove river cells from discretisation (default FALSE)}
+
+\item{renumber}{Boolean Renumber HRUs after discretisation so that their IDS are in numerical order (default TRUE)}
+
+\item{order}{Boolean Reorder HRUs after discretisation so that those with highest TWI come first (approximate to distances from channel). Default FALSE}
+
+\item{burn.hrus}{list  Named list of geometries (supplied as rasters) to burn into discretisation of HRUs that will be stamped onto the classification. Overrides any classification already defined}
+
 \item{chan.width}{Channel width, in same units as DEM. Only used if chans doesn't contain a layer to specify the proportion of each river cell comprised of the channel.}
+
+\item{remove.areas}{Boolean Whether to remove areas that fall into classes with smaller areal contribution than the supplied threshold (default FALSE)}
+
+\item{hrus}{list Unused, maintained for backward compatibility}
 }
 \value{
-A list comprising the following
+A list comprising the following:
 
-weights	Flux distribution (weighting) matrix. A ngroup x ngroup matrix defining the downslope flux distributions between groups, between land and the channel, and between channel reaches, where nh is the number of land discretisations identified by applying cuts to the catchment layers and nc the numbbr of channel reaches defined. The nth row gives the proportions of flow out of HRU #n to other response units and the channel. Row sums should thus always add to 1. The m th column gives the proportion of flow from the other response units into the m th group.
+groups A data frame whose rows comprising the names, plan area and model parameters of each response unit. See Beven and Freer (2001) and Metcalfe et al. (2015) for a description of these parameters
 
-groups A data frame whose rows comprising the names, plan area and model parameters of each response unit. See Beven and Freer (2001) and Metcalfe et al (2015) for a description of these parameters
+weights	Flux distribution (weighting) matrix for routing of subsurface flow downslope through the response units. If n is the number of response units (including channel "unit(s)") this is an n x n matrix.
+Row sums should thus always add to 1. The elements of the i-th row give the proportion of flow directed from response unit i to the other units
 
-hru	Multi-band raster comprising the original rasters that the specifed cuts were applied to produce the discretisation; the channel network;the resultant response unit locations
+cuts list Cuts applied to produce these HRUs
+
+area.thresh  Area threshold specified
+
+layers Multi-band raster comprising the the original rasters that the specified cuts were applied to produce the discretisation; the channel network
+
+chans The channel raster
+
+hru	The resultant response unit locations
 }
 \description{
 Discrete a catchment into a set hydrological response units (HRUs) according to any number of landscape layers and cuts
@@ -36,22 +59,23 @@ Discrete a catchment into a set hydrological response units (HRUs) according to 
 This applies the given cuts to the supplied landscape layers to produce areal groupings of the catchment.
 }
 \examples{
-# Landcover and soils are fairly homogenous throughout the Brompton catchment;
-# storm response of the appears to be mostly controlled by proximity to the
-# channel network. A simple discretisation according to flow distance from the
-# nearest channel thus appears to capture the dynamics during the  2012 event
-# without introducing unnecessary complexity.
+# Landcover and soils are fairly homogenous throughout the Brompton catchment.
+# Due to the extensive artifical sybsurface drainage discharging directly into 
+# the channel it is hypothesied that the storm response is largely mostly controlled 
+# by proximity to the network. A simple discretisation according to flow distance 
+# from the nearest channel thus appears to capture the dynamics without introducing
+# unnecessary complexity.
 \dontrun{
 require(dynatopmodel)
 
 data(brompton)
 
-chans <- build.chans(brompton$dem, drn=brompton$drn, chan.width=2)
-# sort by distance but want areas closest the channel to come first
+chans <- build_chans(brompton$dem, drn=brompton$drn, chan.width=2)
+sort by distance from the channel network, but want areas closest the channel to come first
 layers <- addLayer(brompton$dem, 2000-brompton$flowdists)
-disc <- discretise(layers, cuts=c(flowdists=5), chans=chans, area.thresh=2/100)
-
+disc <- discretise(layers, cuts=c(flowdists=10), chans=chans, area.thresh=0.5/100)
+rm(chans)
+rm(layers)
 write.table(disc$groups, sep="\\t", row.names=FALSE)
 }
 }
-
